@@ -1072,7 +1072,22 @@
 
                 // 加载配置
                 async loadConfig() {
-                    try {
+                    if(localStorage.getItem('ai_config')) {
+                        this.loadFromLocal();
+                    } else {
+                        await this.loadFromServer();
+                    }
+                },
+                loadFromLocal() {
+                    const savedConfig = localStorage.getItem('ai_config');
+                    if (savedConfig) {
+                        this.config = JSON.parse(savedConfig);
+                        this.updateConfigStatus();
+                    } 
+
+                },
+                async loadFromServer() {
+                      try {
                         const response = await fetch('/api/config');
                         const data = await response.json();
 
@@ -1088,6 +1103,7 @@
                 // 保存配置
                 async saveConfig() {
                     this.configSaving = true;
+                    localStorage.setItem('ai_config', JSON.stringify(this.config));
 
                     try {
                         const response = await fetch('/api/config', {
