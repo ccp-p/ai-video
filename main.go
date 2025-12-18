@@ -80,6 +80,13 @@ type AIRequest struct {
 	VideoPath   string        `json:"video_path"` // 必须传入视频路径以进行截图
 }
 
+// ChatRequest AI对话请求
+type ChatRequest struct {
+	History []map[string]string `json:"history"` // 历史对话
+	Context string              `json:"context"` // 当前文档内容
+	Message string              `json:"message"` // 用户提问
+}
+
 // AIResponse AI响应
 type AIResponse struct {
 	Summary  string   `json:"summary"`
@@ -169,6 +176,15 @@ func NewVideoProcessor(videoPath string) (*VideoProcessor, error) {
 		VideoPath: absPath,
 		OutputDir: outputDir,
 	}, nil
+}
+
+// DeleteOutput 删除输出目录
+func (vp *VideoProcessor) DeleteOutput() error {
+	if vp.OutputDir == "" || !strings.Contains(vp.OutputDir, "output_") {
+		return fmt.Errorf("无效的输出目录")
+	}
+	Info("删除输出目录: %s", vp.OutputDir)
+	return os.RemoveAll(vp.OutputDir)
 }
 
 // ExtractAudio 从视频提取音频
@@ -997,27 +1013,55 @@ func (ai *AISummarizer) localSummarize(text string, screenshots []string) (AIRes
 	}, nil
 }
 
-// callExternalAI 调用外部AI
-func (ai *AISummarizer) callExternalAI(prompt string, screenshots []string) (AIResponse, error) {
+// Chat 进行AI对话
+func (ai *AISummarizer) Chat(req ChatRequest) (string, error) {
+	// 设置默认值
+	if ai.config.APIURL == "" {
+		ai.config.APIURL = "https://api.xiaomimimo.com/v1/chat/completions"
+	}
+	if ai.config.Model == "" {
+		ai.config.Model = "mimo-v2-flash"
+	}
+
+	// 构建消息列表
+	var messages []map[string]string
+
+	// 系统提示词
+	systemPrompt := "你是一位知识渊博的老师。用户会根据一段视频的内容向你提问。请基于提供的[上下文内容]回答用户的问题。如果上下文中没有答案，请利用你的通用知识回答，但要说明这一点。"
+	if req.Context != "" {
+		systemPrompt += fmt.Sprintf("\n\n[上下文内容]：\n%s", req.Context)
+	}
+
+	messages = append(messages, map[string]string{"role": "system", "content": systemPrompt})
+
+	// 添加历史记录
+	if len(req.History) > 0 {
+		messages = append(messages, req.History...)
+	}
+
+	// 添加当前问题
+	messages = append(messages, map[string]string{"role": "user", "content": req.Message})
+
+	// 发送请求
+	return ai.sendChatRequest(messages)
+}
+
+// sendChatRequest 发送通用聊天请求
+func (ai *AISummarizer) sendChatRequest(messages []map[string]string) (string, error) {
 	reqBody := map[string]interface{}{
-		"model": ai.config.Model,
-		"messages": []map[string]string{
-			{
-				"role":    "user",
-				"content": prompt,
-			},
-		},
-		"stream": false,
+		"model":    ai.config.Model,
+		"messages": messages,
+		"stream":   false,
 	}
 
 	jsonData, err := json.Marshal(reqBody)
 	if err != nil {
-		return AIResponse{}, fmt.Errorf("JSON编码失败: %w", err)
+		return "", fmt.Errorf("JSON编码失败: %w", err)
 	}
 
 	req, err := http.NewRequest("POST", ai.config.APIURL, bytes.NewBuffer(jsonData))
 	if err != nil {
-		return AIResponse{}, fmt.Errorf("创建请求失败: %w", err)
+		return "", fmt.Errorf("创建请求失败: %w", err)
 	}
 
 	req.Header.Set("Content-Type", "application/json")
@@ -1026,17 +1070,17 @@ func (ai *AISummarizer) callExternalAI(prompt string, screenshots []string) (AIR
 	client := &http.Client{Timeout: 60 * time.Second}
 	resp, err := client.Do(req)
 	if err != nil {
-		return AIResponse{}, fmt.Errorf("API请求失败: %w", err)
+		return "", fmt.Errorf("API请求失败: %w", err)
 	}
 	defer resp.Body.Close()
 
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return AIResponse{}, fmt.Errorf("读取响应失败: %w", err)
+		return "", fmt.Errorf("读取响应失败: %w", err)
 	}
 
 	if resp.StatusCode != http.StatusOK {
-		return AIResponse{}, fmt.Errorf("API错误 (状态码 %d): %s", resp.StatusCode, string(body))
+		return "", fmt.Errorf("API错误 (状态码 %d): %s", resp.StatusCode, string(body))
 	}
 
 	var result struct {
@@ -1051,19 +1095,31 @@ func (ai *AISummarizer) callExternalAI(prompt string, screenshots []string) (AIR
 	}
 
 	if err := json.Unmarshal(body, &result); err != nil {
-		return AIResponse{}, fmt.Errorf("解析响应失败: %w", err)
+		return "", fmt.Errorf("解析响应失败: %w", err)
 	}
 
 	if len(result.Choices) == 0 {
 		if result.Error.Message != "" {
-			return AIResponse{}, fmt.Errorf("API返回错误: %s", result.Error.Message)
+			return "", fmt.Errorf("API返回错误: %s", result.Error.Message)
 		}
-		return AIResponse{}, fmt.Errorf("API返回结果为空")
+		return "", fmt.Errorf("API返回结果为空")
 	}
 
-	content := result.Choices[0].Message.Content
+	return result.Choices[0].Message.Content, nil
+}
 
-	// 简单提取要点
+// callExternalAI 调用外部AI (重构为使用 sendChatRequest)
+func (ai *AISummarizer) callExternalAI(prompt string, screenshots []string) (AIResponse, error) {
+	messages := []map[string]string{
+		{"role": "user", "content": prompt},
+	}
+
+	content, err := ai.sendChatRequest(messages)
+	if err != nil {
+		return AIResponse{}, err
+	}
+
+	// 简单提取要点 (保持原有逻辑)
 	var points []string
 	lines := strings.Split(content, "\n")
 	for _, line := range lines {
@@ -1076,7 +1132,6 @@ func (ai *AISummarizer) callExternalAI(prompt string, screenshots []string) (AIR
 		}
 	}
 
-	// 如果没有提取到要点，取前几句
 	if len(points) == 0 {
 		sentences := strings.Split(content, "。")
 		for i, s := range sentences {
@@ -1162,7 +1217,9 @@ func (s *HTTPServer) Start() {
 	// API路由
 	http.HandleFunc("/api/list-files", s.handleListFiles)
 	http.HandleFunc("/api/process-video", s.handleProcessVideo)
+	http.HandleFunc("/api/delete-output", s.handleDeleteOutput) // 新增删除接口
 	http.HandleFunc("/api/ai-summarize", s.handleAISummarize)
+	http.HandleFunc("/api/ai-chat", s.handleAIChat) // 新增对话接口
 	http.HandleFunc("/api/config", s.handleConfig)
 	http.HandleFunc("/api/health", s.handleHealth)
 
@@ -1321,6 +1378,33 @@ func (s *HTTPServer) handleProcessVideo(w http.ResponseWriter, r *http.Request) 
 	json.NewEncoder(w).Encode(result)
 }
 
+// handleDeleteOutput 删除输出目录
+func (s *HTTPServer) handleDeleteOutput(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "只支持POST方法", http.StatusMethodNotAllowed)
+		return
+	}
+
+	var req ProcessRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "解析请求失败", http.StatusBadRequest)
+		return
+	}
+
+	vp, err := NewVideoProcessor(req.VideoPath)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	if err := vp.DeleteOutput(); err != nil {
+		http.Error(w, "删除失败: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	json.NewEncoder(w).Encode(map[string]bool{"success": true})
+}
+
 // handleAISummarize 处理AI总结
 func (s *HTTPServer) handleAISummarize(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
@@ -1344,6 +1428,32 @@ func (s *HTTPServer) handleAISummarize(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(response)
+}
+
+// handleAIChat 处理AI对话
+func (s *HTTPServer) handleAIChat(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "只支持POST方法", http.StatusMethodNotAllowed)
+		return
+	}
+
+	var req ChatRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "解析请求失败", http.StatusBadRequest)
+		return
+	}
+
+	aiSummarizer := NewAISummarizer(s.aiConfig)
+	reply, err := aiSummarizer.Chat(req)
+	if err != nil {
+		http.Error(w, "AI对话失败: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"success": true,
+		"reply":   reply,
+	})
 }
 
 // handleConfig 处理AI配置
