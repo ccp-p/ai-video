@@ -396,6 +396,107 @@
         ::-webkit-scrollbar-thumb:hover {
             background: #555;
         }
+
+        /* 悬浮视频样式 */
+        .video-container.sticky {
+            position: fixed;
+            bottom: 20px;
+            right: 20px;
+            width: 320px;
+            height: 180px;
+            z-index: 100;
+            box-shadow: 0 5px 20px rgba(0, 0, 0, 0.5);
+            border: 2px solid var(--accent-color);
+            border-radius: 8px;
+            animation: slideIn 0.3s ease;
+        }
+
+        @keyframes slideIn {
+            from {
+                transform: translateY(100%);
+                opacity: 0;
+            }
+
+            to {
+                transform: translateY(0);
+                opacity: 1;
+            }
+        }
+
+        /* 悬浮进度条 */
+        .floating-progress {
+            position: fixed;
+            bottom: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            background: rgba(0, 0, 0, 0.7);
+            padding: 8px 16px;
+            border-radius: 20px;
+            color: white;
+            font-size: 14px;
+            z-index: 1000;
+            backdrop-filter: blur(5px);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        /* 右侧 Tab 样式 */
+        .right-tabs {
+            display: flex;
+            border-bottom: 1px solid var(--border-color);
+            background: #252525;
+        }
+
+        .right-tab {
+            flex: 1;
+            padding: 12px;
+            text-align: center;
+            cursor: pointer;
+            color: var(--text-secondary);
+            font-size: 13px;
+            font-weight: 600;
+        }
+
+        .right-tab.active {
+            color: var(--accent-color);
+            border-bottom: 2px solid var(--accent-color);
+            background: var(--panel-bg);
+        }
+
+        /* 字幕列表样式 */
+        .subtitle-list {
+            flex: 1;
+            overflow-y: auto;
+            padding: 0;
+        }
+
+        .subtitle-item {
+            padding: 10px 15px;
+            border-bottom: 1px solid #333;
+            cursor: pointer;
+            transition: all 0.2s;
+            font-size: 13px;
+            color: #aaa;
+        }
+
+        .subtitle-item:hover {
+            background: #2a2a2a;
+        }
+
+        .subtitle-item.active {
+            background: rgba(187, 134, 252, 0.15);
+            color: var(--text-primary);
+            border-left: 3px solid var(--accent-color);
+        }
+
+        .subtitle-time {
+            color: var(--accent-color);
+            font-size: 11px;
+            margin-bottom: 4px;
+            display: block;
+        }
     </style>
 </head>
 
@@ -457,18 +558,24 @@
             <!-- 中间：内容展示 -->
             <div class="panel">
                 <div class="panel-header">📺 内容预览 & 总结</div>
-                <div class="panel-body" style="padding: 0;">
-                    <!-- 视频播放器 -->
-                    <div class="video-container" v-if="videoUrl">
-                        <video ref="videoPlayer" controls :src="videoUrl"></video>
+                <div class="panel-body" style="padding: 0; position: relative;">
+                    <!-- 视频播放器容器 -->
+                    <div ref="videoWrapper" style="min-height: 200px; background: #000;">
+                        <div class="video-container" :class="{ sticky: isSticky }" v-if="videoUrl">
+                            <video ref="videoPlayer" controls :src="videoUrl" @timeupdate="onTimeUpdate"></video>
+                            <!-- 悬浮时的关闭按钮 -->
+                            <div v-if="isSticky"
+                                style="position:absolute; top:-10px; right:-10px; background:red; color:white; width:20px; height:20px; border-radius:50%; text-align:center; line-height:20px; cursor:pointer; font-size:12px;"
+                                @click.stop="forceStickyOff = true">
+                                ×
+                            </div>
+                        </div>
                     </div>
 
                     <div style="padding: 0 20px;">
+                        <!-- 移除了原始字幕Tab，因为移到了右侧 -->
                         <div class="content-tabs">
-                            <button class="content-tab" :class="{ active: activeTab === 'summary' }"
-                                @click="activeTab = 'summary'">AI总结</button>
-                            <button class="content-tab" :class="{ active: activeTab === 'details' }"
-                                @click="activeTab = 'details'">原始字幕</button>
+                            <button class="content-tab active">AI总结</button>
                         </div>
 
                         <!-- 总结内容 -->
@@ -479,26 +586,23 @@
                                 👈 请先在左侧选择视频并开始处理
                             </div>
                         </div>
-
-                        <!-- 字幕详情 -->
-                        <div v-show="activeTab === 'details'">
-                            <div v-if="processResult" style="font-family: monospace; font-size: 12px; color: #aaa;">
-                                <div v-for="(seg, idx) in processResult.segments" :key="idx"
-                                    style="padding: 5px 0; border-bottom: 1px solid #333; cursor:pointer"
-                                    @click="jumpTo(seg.start_time)">
-                                    <span style="color: var(--accent-color)">[{{ formatTime(seg.start_time) }}]</span>
-                                    {{ seg.text }}
-                                </div>
-                            </div>
-                        </div>
                     </div>
                 </div>
             </div>
 
-            <!-- 右侧：AI 导师 -->
+            <!-- 右侧：AI 导师 & 字幕 -->
             <div class="panel chat-panel">
-                <div class="panel-header">🎓 AI 导师</div>
-                <div class="panel-body" style="display:flex; flex-direction:column; padding:0;">
+                <div class="right-tabs">
+                    <div class="right-tab" :class="{ active: activeRightTab === 'chat' }" @click="activeRightTab = 'chat'">🎓
+                        AI 导师
+                    </div>
+                    <div class="right-tab" :class="{ active: activeRightTab === 'subtitles' }" @click="activeRightTab = 'subtitles'">📝
+                        实时字幕
+                    </div>
+                </div>
+
+                <!-- AI 导师面板 -->
+                <div class="panel-body" style="display:flex; flex-direction:column; padding:0;" v-show="activeRightTab === 'chat'">
                     <div class="chat-messages" ref="chatBox">
                         <div class="message assistant">
                             你好！我是你的AI视频导师。处理完视频后，你可以问我任何关于视频内容的问题。
@@ -511,13 +615,34 @@
                         </div>
                     </div>
                     <div class="chat-input-area">
-                        <textarea v-model="chatInput" @keydown.enter.prevent="sendChat"
-                            placeholder="输入问题，按回车发送..."></textarea>
-                        <button class="btn btn-primary" @click="sendChat"
-                            :disabled="chatLoading || !chatInput">发送</button>
+                        <textarea v-model="chatInput" @keydown.enter.prevent="sendChat" placeholder="输入问题，按回车发送..."></textarea>
+                        <button class="btn btn-primary" @click="sendChat" :disabled="chatLoading || !chatInput">发送</button>
+                    </div>
+                </div>
+
+                <!-- 实时字幕面板 -->
+                <div class="subtitle-list" ref="subtitleList" v-show="activeRightTab === 'subtitles'">
+                    <div v-if="processResult && processResult.segments">
+                        <div v-for="(seg, idx) in processResult.segments"
+                            :key="idx"
+                            class="subtitle-item"
+                            :class="{ active: currentSegmentIndex === idx }"
+                            :ref="el => { if (el) subtitleRefs[idx] = el }"
+                            @click="jumpTo(seg.start_time)">
+                            <span class="subtitle-time">{{ formatTime(seg.start_time) }}</span>
+                            {{ seg.text }}
+                        </div>
+                    </div>
+                    <div v-else style="padding: 20px; text-align: center; color: #666;">
+                        暂无字幕数据
                     </div>
                 </div>
             </div>
+        </div>
+
+        <!-- 悬浮进度条 -->
+        <div class="floating-progress" v-if="videoUrl && currentTime > 0">
+            <span>⏱️ {{ formatTime(currentTime) }} / {{ formatTime(duration) }}</span>
         </div>
 
         <!-- 状态提示 -->
@@ -547,6 +672,17 @@
                     aiResult: null,
 
                     activeTab: 'summary',
+                    activeRightTab: 'chat', // 新增：右侧Tab状态
+
+                    // 视频相关
+                    currentTime: 0,
+                    duration: 0,
+                    isSticky: false,
+                    forceStickyOff: false,
+
+                    // 字幕相关
+                    currentSegmentIndex: -1,
+                    subtitleRefs: [],
 
                     // 聊天相关
                     chatInput: '',
@@ -564,7 +700,7 @@
                     // 统一转换为正斜杠
                     const normalizedVideo = this.videoPath.replace(/\\/g, '/');
                     const normalizedDir = this.downloadDir.replace(/\\/g, '/');
- 
+
                     // 确保目录以斜杠结尾以便正确替换
                     const dirWithSlash = normalizedDir.endsWith('/') ? normalizedDir : normalizedDir + '/';
 
@@ -581,8 +717,18 @@
             mounted() {
                 this.loadFiles();
                 this.loadConfig();
-                // 轮询文件列表
                 this.refreshTimer = setInterval(this.loadFiles, 30000);
+
+                // 监听滚动实现悬浮视频
+                const observer = new IntersectionObserver(([entry]) => {
+                    if (!this.forceStickyOff) {
+                        this.isSticky = !entry.isIntersecting;
+                    }
+                }, { threshold: 0.1 });
+
+                if (this.$refs.videoWrapper) {
+                    observer.observe(this.$refs.videoWrapper);
+                }
             },
             beforeUnmount() {
                 if (this.refreshTimer) clearInterval(this.refreshTimer);
@@ -628,9 +774,17 @@
 
                         if (data.success) {
                             this.processResult = data;
-                            this.showMessage('处理完成，正在生成总结...', 'success');
-                            // 自动触发总结
-                            await this.aiSummarize();
+                            this.showMessage('处理完成', 'success');
+
+                            // 检查是否有缓存的AI结果
+                            if (data.ai_result) {
+                                this.aiResult = data.ai_result;
+                                this.showMessage('已加载缓存的AI总结', 'success');
+                            } else {
+                                // 没有缓存，自动触发总结
+                                this.showMessage('正在生成AI总结...', 'info');
+                                await this.aiSummarize();
+                            }
                         } else {
                             this.showMessage('处理失败: ' + data.message, 'error');
                         }
@@ -782,7 +936,37 @@
                 showMessage(text, type) {
                     this.message = { text, type };
                     setTimeout(() => this.message.text = '', 3000);
-                }
+                },
+
+                // 视频时间更新事件
+                onTimeUpdate(e) {
+                    const video = e.target;
+                    this.currentTime = video.currentTime;
+                    this.duration = video.duration || 0;
+
+                    // 同步字幕
+                    if (this.processResult && this.processResult.segments) {
+                        const idx = this.processResult.segments.findIndex(s =>
+                            this.currentTime >= s.start_time && this.currentTime <= s.end_time
+                        );
+
+                        if (idx !== -1 && idx !== this.currentSegmentIndex) {
+                            this.currentSegmentIndex = idx;
+                            // 滚动到对应字幕
+                            this.scrollToSubtitle(idx);
+                        }
+                    }
+                },
+
+                scrollToSubtitle(index) {
+                    // 确保在字幕Tab激活时才滚动
+                    if (this.activeRightTab === 'subtitles' && this.subtitleRefs[index]) {
+                        this.subtitleRefs[index].scrollIntoView({
+                            behavior: 'smooth',
+                            block: 'center'
+                        });
+                    }
+                },
             }
         }).mount('#app');
     </script>

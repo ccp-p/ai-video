@@ -111,22 +111,38 @@ type ProcessRequest struct {
 
 // ProcessResponse 处理响应
 type ProcessResponse struct {
-	Success       bool         `json:"success"`
-	Message       string       `json:"message,omitempty"`
-	AudioPath     string       `json:"audio_path,omitempty"`
-	SrtPath       string       `json:"srt_path,omitempty"`
-	SrtContent    string       `json:"srt_content,omitempty"`
+	Success       bool          `json:"success"`
+	Message       string        `json:"message,omitempty"`
+	AudioPath     string        `json:"audio_path,omitempty"`
+	SrtPath       string        `json:"srt_path,omitempty"`
+	SrtContent    string        `json:"srt_content,omitempty"`
 	Segments      []DataSegment `json:"segments,omitempty"`
-	Screenshots   []string     `json:"screenshots,omitempty"`
-	OutputDir     string       `json:"output_dir,omitempty"`
-	Duration      float64      `json:"duration,omitempty"`
-	SegmentCount  int          `json:"segment_count,omitempty"`
+	Screenshots   []string      `json:"screenshots,omitempty"`
+	OutputDir     string        `json:"output_dir,omitempty"`
+	Duration      float64       `json:"duration,omitempty"`
+	SegmentCount  int           `json:"segment_count,omitempty"`
+	AIResult      *AIResponse   `json:"ai_result,omitempty"` // 新增：返回缓存的AI总结
 }
 
 // ProgressCallback 进度回调函数类型
 type ProgressCallback func(percent int, message string)
 
 // ==================== 工具函数 ====================
+
+// getHTTPClient 获取带代理的HTTP客户端
+func getHTTPClient() *http.Client {
+	// proxyURL, err := url.Parse("http://127.0.0.1:7890")
+	// if err != nil {
+	// 	return &http.Client{Timeout: TimeoutSeconds * time.Second}
+	// }
+		// Proxy: http.ProxyURL(proxyURL),
+
+	return &http.Client{
+		Transport: &http.Transport{
+		},
+		Timeout: TimeoutSeconds * time.Second,
+	}
+}
 
 func Info(format string, v ...interface{}) {
 	log.Printf("[INFO] "+format, v...)
@@ -459,7 +475,8 @@ func (b *BcutASR) requestUpload() error {
 	req.Header.Set("User-Agent", "Bilibili/1.0.0 (https://www.bilibili.com)")
 	req.Header.Set("Content-Type", "application/json")
 
-	client := &http.Client{Timeout: TimeoutSeconds * time.Second}
+	// 使用带代理的客户端
+	client := getHTTPClient()
 	resp, err := client.Do(req)
 	if err != nil {
 		return fmt.Errorf("发送HTTP请求失败: %w", err)
@@ -516,7 +533,8 @@ func (b *BcutASR) requestUpload() error {
 
 func (b *BcutASR) uploadParts() error {
 	b.etags = make([]string, b.clips)
-	client := &http.Client{Timeout: TimeoutSeconds * time.Second}
+	// 使用带代理的客户端
+	client := getHTTPClient()
 
 	for i := 0; i < b.clips; i++ {
 		startRange := i * b.perSize
@@ -583,7 +601,8 @@ func (b *BcutASR) commitUpload() error {
 	req.Header.Set("User-Agent", "Bilibili/1.0.0 (https://www.bilibili.com)")
 	req.Header.Set("Content-Type", "application/json")
 
-	client := &http.Client{Timeout: TimeoutSeconds * time.Second}
+	// 使用带代理的客户端
+	client := getHTTPClient()
 	resp, err := client.Do(req)
 	if err != nil {
 		return fmt.Errorf("发送HTTP请求失败: %w", err)
@@ -643,7 +662,8 @@ func (b *BcutASR) createTask() error {
 	req.Header.Set("User-Agent", "Bilibili/1.0.0 (https://www.bilibili.com)")
 	req.Header.Set("Content-Type", "application/json")
 
-	client := &http.Client{Timeout: TimeoutSeconds * time.Second}
+	// 使用带代理的客户端
+	client := getHTTPClient()
 	resp, err := client.Do(req)
 	if err != nil {
 		return fmt.Errorf("发送HTTP请求失败: %w", err)
@@ -674,7 +694,8 @@ func (b *BcutASR) createTask() error {
 }
 
 func (b *BcutASR) queryResult(ctx context.Context, callback ProgressCallback) (map[string]interface{}, error) {
-	client := &http.Client{Timeout: TimeoutSeconds * time.Second}
+	// 使用带代理的客户端
+	client := getHTTPClient()
 	instanceID := GenerateRandomString(6)
 
 	Info("[BcutASR-%s] 开始轮询查询任务: %s", instanceID, b.taskID)
@@ -914,6 +935,18 @@ func (ai *AISummarizer) Summarize(req AIRequest) (AIResponse, error) {
 		}
 	}
 
+	// 3. 保存总结结果到本地缓存
+	if req.VideoPath != "" {
+		vp, err := NewVideoProcessor(req.VideoPath)
+		if err == nil {
+			summaryPath := filepath.Join(vp.OutputDir, "summary.json")
+			if data, err := json.MarshalIndent(rawResponse, "", "  "); err == nil {
+				os.WriteFile(summaryPath, data, 0644)
+				Info("AI总结已保存到: %s", summaryPath)
+			}
+		}
+	}
+
 	return rawResponse, nil
 }
 
@@ -1067,7 +1100,9 @@ func (ai *AISummarizer) sendChatRequest(messages []map[string]string) (string, e
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Authorization", "Bearer "+ai.config.APIKey)
 
-	client := &http.Client{Timeout: 60 * time.Second}
+	// 使用带代理的客户端 (如果需要AI也走代理，可以使用 getHTTPClient，这里暂时保持直连或根据需求修改)
+	// 考虑到国内访问OpenAI等可能需要代理，这里也统一使用代理
+	client := getHTTPClient()
 	resp, err := client.Do(req)
 	if err != nil {
 		return "", fmt.Errorf("API请求失败: %w", err)
@@ -1299,67 +1334,95 @@ func (s *HTTPServer) handleProcessVideo(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	// 提取音频
-	audioPath, err := vp.ExtractAudio()
-	if err != nil {
-		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(ProcessResponse{
-			Success: false,
-			Message: "提取音频失败: " + err.Error(),
+	// === 缓存检查开始 ===
+	// 1. 检查是否存在 segments.json (ASR结果)
+	segmentsPath := filepath.Join(vp.OutputDir, "segments.json")
+	var segments []DataSegment
+	segmentsLoaded := false
+
+	if data, err := os.ReadFile(segmentsPath); err == nil {
+		if json.Unmarshal(data, &segments) == nil && len(segments) > 0 {
+			Info("从缓存加载ASR结果: %s", segmentsPath)
+			segmentsLoaded = true
+		}
+	}
+
+	// 2. 检查是否存在 summary.json (AI总结结果)
+	summaryPath := filepath.Join(vp.OutputDir, "summary.json")
+	var aiResult *AIResponse
+	if data, err := os.ReadFile(summaryPath); err == nil {
+		var res AIResponse
+		if json.Unmarshal(data, &res) == nil {
+			Info("从缓存加载AI总结: %s", summaryPath)
+			aiResult = &res
+		}
+	}
+	// === 缓存检查结束 ===
+
+	var audioPath string
+	var duration float64
+
+	// 如果没有缓存，才进行音频提取和ASR
+	if !segmentsLoaded {
+		// 提取音频
+		audioPath, err = vp.ExtractAudio()
+		if err != nil {
+			w.Header().Set("Content-Type", "application/json")
+			json.NewEncoder(w).Encode(ProcessResponse{
+				Success: false,
+				Message: "提取音频失败: " + err.Error(),
+			})
+			return
+		}
+		// 确保处理结束后删除音频文件
+		defer func() {
+			Info("清理临时音频文件: %s", audioPath)
+			os.Remove(audioPath)
+		}()
+
+		// ASR识别 - 禁用内部缓存，使用我们自己的文件缓存
+		asrClient, err := NewBcutASR(audioPath, false)
+		if err != nil {
+			w.Header().Set("Content-Type", "application/json")
+			json.NewEncoder(w).Encode(ProcessResponse{
+				Success: false,
+				Message: "创建ASR服务失败: " + err.Error(),
+			})
+			return
+		}
+
+		ctx := context.Background()
+		segments, err = asrClient.GetResult(ctx, func(percent int, message string) {
+			Info("ASR进度: %d%% - %s", percent, message)
 		})
-		return
-	}
-	// 确保处理结束后删除音频文件
-	defer func() {
-		Info("清理临时音频文件: %s", audioPath)
-		os.Remove(audioPath)
-	}()
+		if err != nil {
+			w.Header().Set("Content-Type", "application/json")
+			json.NewEncoder(w).Encode(ProcessResponse{
+				Success: false,
+				Message: "ASR识别失败: " + err.Error(),
+			})
+			return
+		}
 
-	// 提取视频时长
-	duration, err := vp.GetVideoDuration()
+		// 保存 segments.json
+		if data, err := json.MarshalIndent(segments, "", "  "); err == nil {
+			os.WriteFile(segmentsPath, data, 0644)
+		}
+	} else {
+		// 如果加载了缓存，音频路径可能为空，但这不影响后续逻辑
+		audioPath = filepath.Join(vp.OutputDir, "audio.mp3") // 假路径
+	}
+
+	// 提取视频时长 (总是尝试获取，很快)
+	duration, err = vp.GetVideoDuration()
 	if err != nil {
-		duration = 0 // 继续处理
+		duration = 0
 	}
 
-	// 移除：不再预先提取固定截图，改为由AI按需提取
-	// screenshots, err := vp.ExtractScreenshots(duration)
-	screenshots := []string{}
-
-	// ASR识别 - 禁用缓存以节省空间
-	asrClient, err := NewBcutASR(audioPath, false)
-	if err != nil {
-		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(ProcessResponse{
-			Success: false,
-			Message: "创建ASR服务失败: " + err.Error(),
-		})
-		return
-	}
-
-	ctx := context.Background()
-	segments, err := asrClient.GetResult(ctx, func(percent int, message string) {
-		Info("ASR进度: %d%% - %s", percent, message)
-	})
-	if err != nil {
-		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(ProcessResponse{
-			Success: false,
-			Message: "ASR识别失败: " + err.Error(),
-		})
-		return
-	}
-
-	// 生成SRT
+	// 生成SRT (总是重新生成或覆盖，很快)
 	srtContent := generateSRT(segments)
 	srtPath := filepath.Join(vp.OutputDir, "subtitles.srt")
-	if err := saveSRTFile(srtContent, srtPath); err != nil {
-		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(ProcessResponse{
-			Success: false,
-			Message: "保存SRT失败: " + err.Error(),
-		})
-		return
-	}
+	saveSRTFile(srtContent, srtPath)
 
 	// 返回结果
 	result := ProcessResponse{
@@ -1368,10 +1431,11 @@ func (s *HTTPServer) handleProcessVideo(w http.ResponseWriter, r *http.Request) 
 		SrtPath:      srtPath,
 		SrtContent:   srtContent,
 		Segments:     segments,
-		Screenshots:  screenshots,
+		Screenshots:  []string{}, // 不再返回预设截图
 		OutputDir:    vp.OutputDir,
 		Duration:     duration,
 		SegmentCount: len(segments),
+		AIResult:     aiResult, // 返回缓存的AI结果
 	}
 
 	w.Header().Set("Content-Type", "application/json")
