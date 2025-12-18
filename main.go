@@ -839,12 +839,20 @@ func (ai *AISummarizer) Summarize(req AIRequest) (AIResponse, error) {
 	// 完整的prompt
 	fullPrompt := fmt.Sprintf("%s\n\n内容：%s\n%s", prompt, fullText, screenshotInfo)
 
-	// 如果没有配置API，使用本地模拟
-	if ai.config.APIKey == "" || ai.config.APIURL == "" {
+	// 如果没有配置API Key，使用本地模拟
+	if ai.config.APIKey == "" {
 		return ai.localSummarize(fullText, req.Screenshots)
 	}
 
-	// 调用外部AI API - 简化的实现
+	// 设置默认值
+	if ai.config.APIURL == "" {
+		ai.config.APIURL = "https://api.xiaomimimo.com/v1/chat/completions"
+	}
+	if ai.config.Model == "" {
+		ai.config.Model = "mimo-v2-flash"
+	}
+
+	// 调用外部AI API
 	return ai.callExternalAI(fullPrompt, req.Screenshots)
 }
 
@@ -898,14 +906,104 @@ func (ai *AISummarizer) localSummarize(text string, screenshots []string) (AIRes
 	}, nil
 }
 
-// callExternalAI 调用外部AI（简化版，实际使用需要完善）
+// callExternalAI 调用外部AI
 func (ai *AISummarizer) callExternalAI(prompt string, screenshots []string) (AIResponse, error) {
-	// 这里是AI API调用的占位符
-	// 实际实现需要根据具体AI服务的API文档来完成
-	// 例如OpenAI、文心一言、通义千问等
+	reqBody := map[string]interface{}{
+		"model": ai.config.Model,
+		"messages": []map[string]string{
+			{
+				"role":    "user",
+				"content": prompt,
+			},
+		},
+		"stream": false,
+	}
 
-	// 为了演示，暂时返回本地结果
-	return ai.localSummarize("", screenshots)
+	jsonData, err := json.Marshal(reqBody)
+	if err != nil {
+		return AIResponse{}, fmt.Errorf("JSON编码失败: %w", err)
+	}
+
+	req, err := http.NewRequest("POST", ai.config.APIURL, bytes.NewBuffer(jsonData))
+	if err != nil {
+		return AIResponse{}, fmt.Errorf("创建请求失败: %w", err)
+	}
+
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+ai.config.APIKey)
+
+	client := &http.Client{Timeout: 60 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		return AIResponse{}, fmt.Errorf("API请求失败: %w", err)
+	}
+	defer resp.Body.Close()
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return AIResponse{}, fmt.Errorf("读取响应失败: %w", err)
+	}
+
+	if resp.StatusCode != http.StatusOK {
+		return AIResponse{}, fmt.Errorf("API错误 (状态码 %d): %s", resp.StatusCode, string(body))
+	}
+
+	var result struct {
+		Choices []struct {
+			Message struct {
+				Content string `json:"content"`
+			} `json:"message"`
+		} `json:"choices"`
+		Error struct {
+			Message string `json:"message"`
+		} `json:"error"`
+	}
+
+	if err := json.Unmarshal(body, &result); err != nil {
+		return AIResponse{}, fmt.Errorf("解析响应失败: %w", err)
+	}
+
+	if len(result.Choices) == 0 {
+		if result.Error.Message != "" {
+			return AIResponse{}, fmt.Errorf("API返回错误: %s", result.Error.Message)
+		}
+		return AIResponse{}, fmt.Errorf("API返回结果为空")
+	}
+
+	content := result.Choices[0].Message.Content
+
+	// 简单提取要点
+	var points []string
+	lines := strings.Split(content, "\n")
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+		if strings.HasPrefix(line, "- ") || strings.HasPrefix(line, "* ") || strings.HasPrefix(line, "1. ") {
+			cleanLine := strings.TrimLeft(line, "-*1234567890. ")
+			if len(cleanLine) > 0 {
+				points = append(points, cleanLine)
+			}
+		}
+	}
+
+	// 如果没有提取到要点，取前几句
+	if len(points) == 0 {
+		sentences := strings.Split(content, "。")
+		for i, s := range sentences {
+			if i >= 5 {
+				break
+			}
+			if len(s) > 5 {
+				points = append(points, s)
+			}
+		}
+	}
+
+	return AIResponse{
+		Summary:  "AI智能总结",
+		Markdown: content,
+		Points:   points,
+		Success:  true,
+	}, nil
 }
 
 // ==================== 文件操作服务 ====================
@@ -979,8 +1077,7 @@ func (s *HTTPServer) Start() {
 
 	// 静态文件服务
 	http.Handle("/", http.FileServer(http.Dir("./static")))
-
-	Info("HTTP服务启动在端口: %s", s.port)
+	Info("HTTP服务启动在端口: http://localhost:%s", s.port)
 	Info("静态文件目录: ./static")
 	Info("下载目录: %s", DOWNLOAD_DIR)
 
