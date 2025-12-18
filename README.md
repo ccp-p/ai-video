@@ -1,287 +1,238 @@
-# 视频字幕生成与AI总结工具
+# 音频/视频AI总结工具
 
-一个完整的视频处理工具，使用Go语言编写，支持视频音频提取、语音识别、SRT字幕生成、视频截图和AI智能总结。
+一个基于Go的高性能音频视频处理工具，支持语音识别(ASR)、字幕生成和AI智能总结。
 
-## 功能特性
+## 🎯 核心功能
 
-### 后端功能
-- ✅ **视频处理**：使用FFmpeg提取音频和视频截图
-- ✅ **语音识别**：集成B站必剪ASR服务进行语音转文字
-- ✅ **字幕生成**：自动生成SRT格式字幕文件
-- ✅ **多格式支持**：支持MP4、AVI、MKV等常见视频格式
-- ✅ **缓存系统**：避免重复识别，提高效率
-- ✅ **HTTP服务**：提供REST API和Web界面
+- **视频处理**：自动提取音频、生成SRT字幕、截图
+- **语音识别**：使用B站必剪API进行高精度语音转文字
+- **AI总结**：本地算法生成结构化Markdown总结
+- **前后端分离**：纯HTML+Vue前端，易于部署和修改
+- **文件管理**：自动读取D:/download目录，无需手动输入路径
 
-### 前端功能
-- ✅ **纯HTML界面**：单文件HTML，无需构建工具
-- ✅ **视频处理**：一键处理视频，提取音频+字幕+截图
-- ✅ **AI总结**：支持文本输入和SRT文件上传
-- ✅ **自定义配置**：可配置AI API Key、API URL和模型
-- ✅ **Prompt自定义**：支持用户自定义总结提示词
-- ✅ **Markdown输出**：结构化总结，带要点和截图引用
+## 📁 项目结构
 
-## 环境要求
-
-### 必需依赖
-1. **Go语言**：1.21或更高版本
-2. **FFmpeg**：用于视频音频提取和截图
-   - 下载地址：https://ffmpeg.org/download.html
-   - 确保ffmpeg和ffprobe在系统PATH中
-
-### 可选依赖
-- **AI API Key**：用于AI总结（如OpenAI、文心一言、通义千问等）
-- 不配置时使用本地算法生成总结
-
-## 快速开始
-
-### 1. 安装FFmpeg
-确保已安装FFmpeg并添加到系统PATH：
-```bash
-# Windows: 下载后将bin目录添加到环境变量
-# 验证安装
-ffmpeg -version
-ffprobe -version
+```
+ccode/
+├── main.go                 # 后端主程序
+├── static/
+│   └── index.html         # 前端界面
+├── cache/                 # ASR缓存目录
+├── go.mod                 # Go依赖配置
+└── README.md              # 说明文档
 ```
 
-### 2. 编译和运行
+## 🚀 快速开始
 
-#### 编译
+### 环境要求
+
+1. **Go 1.18+**
+2. **FFmpeg** (必须安装并添加到PATH)
+   - 下载：https://ffmpeg.org/download.html
+   - 验证：`ffmpeg -version`
+
+### 安装依赖
+
 ```bash
-cd D:\project\ccode
 go mod tidy
 ```
 
-#### 运行模式
+### 启动服务
 
-**HTTP服务模式（推荐）**：
+**HTTP模式 (推荐):**
 ```bash
-go run main_enhanced.go -mode server -port 8080
+go run main.go -mode server -port 8080
 ```
 
-**命令行模式**：
+**CLI模式:**
 ```bash
-# 处理视频，提取音频、字幕和截图
-go run main_enhanced.go -mode cli -video D:/videos/demo.mp4
+# 处理视频
+go run main.go -mode cli -video D:/download/demo.mp4
 
-# 仅处理音频
-go run main_enhanced.go -mode cli -audio D:/videos/audio.mp3
+# 处理音频
+go run main.go -mode cli -audio D:/download/audio.mp3
 ```
 
-### 3. 访问Web界面
+### 使用Web界面
 
-打开浏览器访问：`http://localhost:8080`
+1. 启动服务后，浏览器访问：`http://localhost:8080`
+2. 界面会自动读取 `D:/download` 目录
+3. 点击文件选择，然后操作
 
-界面包含三个标签页：
-1. **视频处理**：输入视频路径，一键生成字幕
-2. **AI总结**：输入文本或上传SRT，进行AI总结
-3. **AI配置**：配置API Key、API URL和自定义Prompt
+## 🎨 前端特性
 
-## 功能详细说明
+### UI优化重点
+- **AI总结为核心**：将总结结果放在最显眼位置
+- **简化操作**：左侧控制面板，右侧结果展示
+- **清晰分类**：三个标签页分别展示不同内容
+  - **AI总结**：核心要点 + 完整Markdown
+  - **原始数据**：视频信息、识别段落、SRT字幕
+  - **截图管理**：截图路径和说明
 
-### 视频处理流程
-1. **音频提取**：从视频中提取音频为MP3格式
-2. **视频截图**：按时间间隔自动提取5张关键帧截图
-3. **语音识别**：调用B站必剪ASR服务进行语音转文字
-4. **字幕生成**：生成SRT格式字幕文件
-5. **结果保存**：在视频同目录下创建output文件夹，保存所有文件
+### 交互优化
+- ✅ 无需手动输入文件路径（自动读取D:/download）
+- ✅ 一键处理和一键总结
+- ✅ 进度条实时显示
+- ✅ 错误信息清晰提示
+- ✅ 自动保存配置
+- ✅ 纯HTML，无需构建工具
 
-### AI总结功能
-- **文本输入**：直接输入文本或粘贴内容
-- **文件上传**：支持上传SRT或TXT文件
-- **自定义Prompt**：可定义AI总结的风格和要求
-- **截图引用**：可以在总结中引用视频截图路径
-- **Markdown输出**：结构化的总结报告，包含要点列表
+## 🔧 API接口
 
-### AI配置说明
-- **API Key**：AI服务的访问密钥
-- **API URL**：AI服务的API地址
-  - 示例：`https://api.openai.com/v1/chat/completions`
-- **模型名称**：使用的AI模型
-  - 示例：`gpt-4`, `gpt-3.5-turbo`, `ernie-bot`等
-- **自定义Prompt**：默认总结提示词
-
-## API接口文档
-
-### 1. 处理视频
-```http
-POST /api/process-video?video=D:/videos/demo.mp4
+### 文件列表
+```bash
+GET /api/list-files
+# 返回D:/download目录下的文件列表
 ```
 
-返回：
-```json
+### 视频处理
+```bash
+POST /api/process-video
+Content-Type: application/json
+
 {
-  "success": true,
-  "audio_path": "D:/videos/output_demo.mp4/audio.mp3",
-  "srt_path": "D:/videos/output_demo.mp4/subtitles.srt",
-  "srt_content": "1\n00:00:01,050 --> 00:00:03,150\n欢迎观看本视频\n...",
-  "segments": [...],
-  "screenshots": ["D:/videos/output_demo.mp4/screenshot_1.jpg", ...],
-  "output_dir": "D:/videos/output_demo.mp4",
-  "duration": 180.5,
-  "segment_count": 15
+  "video_path": "D:/download/video.mp4"
 }
+
+# 返回：音频路径、字幕、截图、识别结果等
 ```
 
-### 2. AI总结
-```http
+### AI总结
+```bash
 POST /api/ai-summarize
 Content-Type: application/json
 
 {
   "text": "要总结的文本内容...",
-  "prompt": "自定义提示词",
-  "segments": [...],  // ASR结果
-  "screenshots": ["path/to/screenshot.jpg"],
-  "video_path": "path/to/video.mp4"
+  "prompt": "自定义提示词（可选）",
+  "screenshots": ["screenshot_1.jpg"]
 }
+
+# 返回：总结内容、Markdown、要点列表
 ```
 
-返回：
-```json
-{
-  "success": true,
-  "summary": "简短总结...",
-  "markdown": "# 视频总结\n\n## 核心要点\n- 要点1\n- 要点2\n...",
-  "points": ["要点1", "要点2", ...]
-}
-```
-
-### 3. 配置管理
-```http
-# 获取配置
-GET /api/config
-
-# 设置配置
+### 配置API
+```bash
 POST /api/config
 Content-Type: application/json
 
 {
-  "api_key": "your-api-key",
-  "api_url": "https://api.example.com/v1/chat/completions",
+  "api_key": "...",
+  "api_url": "...",
   "model": "gpt-4",
-  "custom_prompt": "请详细总结以下内容..."
+  "custom_prompt": "自定义总结要求..."
 }
 ```
 
-## 输出文件说明
+## 📝 使用流程
 
-处理视频后会在视频同目录创建 `output_<视频名>` 文件夹，包含：
+1. **准备视频**
+   - 将视频文件放入 `D:/download` 目录
+   - 确保路径包含英文，避免中文路径问题
 
-- `audio.mp3` - 提取的音频文件
+2. **处理视频**
+   - 在左侧"选择文件"点击视频
+   - 点击"开始处理视频"
+   - 等待进度条完成
+
+3. **生成总结**
+   - 处理完成后，文本自动填入左侧
+   - 可选：填入截图路径（自动填充）
+   - 点击"生成AI总结"按钮
+
+4. **查看结果**
+   - 切换到"AI总结"标签页
+   - 查看核心要点和完整总结
+   - 复制Markdown内容用于其他用途
+
+## 🔧 配置说明
+
+### 默认配置（本地算法）
+- 无需API Key
+- 使用Go内置算法提取关键句
+- 生成Markdown格式输出
+
+### 配置外部AI API
+- 在"AI配置"面板填入信息
+- 支持OpenAI、文心一言等API
+- 系统会自动优先使用外部API
+
+## 📊 输出说明
+
+处理完成后会在视频同目录创建 `output_视频名` 文件夹：
+- `audio.mp3` - 提取的音频
 - `subtitles.srt` - SRT字幕文件
-- `segments.json` - ASR识别结果（JSON格式）
-- `screenshot_1.jpg` ~ `screenshot_5.jpg` - 视频截图
+- `segments.json` - 识别结果JSON
+- `screenshot_*.jpg` - 视频截图（5张）
 
-## 使用示例
+## ⚠️ 注意事项
 
-### 示例1：处理视频并得到字幕
-```bash
-# 1. 启动HTTP服务
-go run main_enhanced.go -mode server -port 8080
+1. **FFmpeg必须安装**
+   - 用于音频提取和截图
+   - 建议下载完整版（包含ffprobe）
 
-# 2. 浏览器访问 http://localhost:8080
-# 3. 在"视频处理"标签页输入：D:/videos/我的视频.mp4
-# 4. 等待处理完成，下载SRT字幕
+2. **目录权限**
+   - 确保程序有读写D:/download的权限
+   - 可以在其他盘创建符号链接
+
+3. **网络要求**
+   - 需要访问B站API进行语音识别
+   - 识别过程可能需要几分钟
+
+4. **缓存机制**
+   - 相同音频会自动使用缓存
+   - 提高重复处理速度
+   - 缓存文件在 `./cache` 目录
+
+## 🔍 故障排除
+
+### 问题：找不到ffmpeg
+```
+错误：未找到ffmpeg，请确保已安装并添加到PATH
+解决：下载FFmpeg并配置环境变量
 ```
 
-### 示例2：AI总结现有文本
-```bash
-# 1. 在"AI总结"标签页
-# 2. 粘贴文本或上传SRT文件
-# 3. 配置AI API（可选，不配置使用本地算法）
-# 4. 点击"AI智能总结"
-# 5. 查看Markdown格式的总结报告
+### 问题：目录不存在
+```
+错误：下载目录不存在: D:/download
+解决：手动创建目录：mkdir D:/download
 ```
 
-### 示例3：命令行处理
-```bash
-# 处理视频，自动生成字幕和截图
-go run main_enhanced.go -mode cli -video "D:/videos/demo.mp4"
-
-# 输出：
-# === 视频字幕生成CLI工具 ===
-# [1/4] 提取音频...
-# [2/4] 提取视频截图...
-# [3/4] 语音识别(ASR)...
-# [4/4] 生成SRT字幕...
-# 处理完成！文件保存在：D:/videos/output_demo.mp4/
+### 问题：识别失败
+```
+可能原因：
+- 网络问题，无法访问B站API
+- 音频格式不支持
+- 音频文件太大
+解决：检查网络，尝试重新上传
 ```
 
-## 常见问题
+## 🛠️ 开发说明
 
-### Q: 提示"未找到ffmpeg"
-A: 请下载FFmpeg并添加到系统PATH环境变量。
+### 前端修改
+- 文件位置：`static/index.html`
+- 直接编辑即可，无需构建
+- 使用Vue 3 CDN版本
 
-### Q: ASR识别失败
-A: 可能是网络问题或B站API限制。建议：
-1. 检查网络连接
-2. 尝试缓存功能（默认开启）
-3. 使用较短的音频测试
+### 后端修改
+- 文件位置：`main.go`
+- 修改常量 `DOWNLOAD_DIR` 可更改默认目录
+- 修改 `HTTP_PORT` 更改端口
 
-### Q: AI总结只有本地算法
-A: 这是正常的。如果不配置API Key和API URL，系统会使用本地算法生成基础总结。配置后可使用更强大的AI模型。
+### 添加新功能
+1. 在 `main.go` 添加新的API路由
+2. 在前端 `static/index.html` 添加对应UI
+3. 重启服务即可生效
 
-### Q: 如何配置自定义AI服务
-A: 在"AI配置"页面填写：
-- API Key：你的API密钥
-- API URL：AI服务的接口地址
-- 模型：模型名称
-- 自定义Prompt：总结的提示词
+## 📞 技术支持
 
-## 技术实现
-
-- **Go 标准库**：http, json, os, exec等
-- **FFmpeg**：音频提取和截图
-- **B站必剪ASR**：语音识别API（来自Bilibili）
-- **纯前端**：HTML+CSS+JavaScript，无依赖
-
-## 注意事项
-
-1. **网络依赖**：ASR服务需要网络连接
-2. **文件大小**：大文件处理时间较长，请耐心等待
-3. **浏览器兼容**：现代浏览器均支持（Chrome, Firefox, Edge等）
-4. **安全说明**：配置的API Key仅存储在内存中
-
-## 项目结构
-
-```
-D:\project\ccode\
-├── main_enhanced.go     # 主程序（完整功能）
-├── ccode.go             # 原始ASR程序
-├── go.mod               # Go模块定义
-├── README.md            # 使用说明
-├── cache/              # 缓存目录（自动创建）
-└── output_*/           # 处理结果（自动生成）
-    ├── audio.mp3
-    ├── subtitles.srt
-    ├── segments.json
-    └── screenshot_*.jpg
-```
-
-## 扩展功能
-
-该工具设计为可扩展的，你可以：
-- 添加其他ASR服务（如Google Speech-to-Text）
-- 集成更多AI模型（如文心一言、通义千问）
-- 添加视频编辑功能
-- 支持批量处理
-
-## 开发环境
-
-```bash
-# 安装依赖
-go mod init ccode
-go mod tidy
-
-# 编译（可选）
-go build -o video-subtitle.exe main_enhanced.go
-
-# 运行
-video-subtitle.exe -mode server -port 8080
-```
+本工具使用以下技术栈：
+- **后端**: Go (标准库 + net/http)
+- **前端**: Vue 3 + 原生HTML/CSS
+- **语音识别**: B站必剪API
+- **视频处理**: FFmpeg
 
 ---
 
-**使用愉快！** 🎉
-
-如有问题或建议，欢迎反馈。
+**版本**: 2.0 (前后端分离版)
+**更新日期**: 2025-12-18

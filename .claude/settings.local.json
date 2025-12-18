@@ -7,7 +7,13 @@
       "Bash(findstr:*)",
       "Bash(go version:*)",
       "Bash(ccode_enhanced.exe:*)",
-      "Bash(git add:*)"
+      "Bash(git add:*)",
+      "Bash(del nul:*)",
+      "Bash(git config:*)",
+      "Bash(del /F main.go ccode.exe ccode_enhanced.exe:*)",
+      "Bash(copy:*)",
+      "Bash(cp:*)",
+      "Bash(tree:*)"
     ]
   }
 }

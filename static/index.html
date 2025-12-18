@@ -1,0 +1,1198 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>视频AI总结工具</title>
+    <script src="https://cdn.jsdelivr.net/npm/vue@3/dist/vue.global.js"></script>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+        }
+
+        #app {
+            max-width: 1400px;
+            margin: 0 auto;
+        }
+
+        .header {
+            background: white;
+            border-radius: 12px;
+            padding: 25px;
+            margin-bottom: 20px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.2);
+            text-align: center;
+        }
+
+        .header h1 {
+            color: #667eea;
+            font-size: 32px;
+            margin-bottom: 8px;
+        }
+
+        .header p {
+            color: #666;
+            font-size: 14px;
+        }
+
+        .main-layout {
+            display: grid;
+            grid-template-columns: 350px 1fr;
+            gap: 20px;
+            align-items: start;
+        }
+
+        @media (max-width: 1024px) {
+            .main-layout {
+                grid-template-columns: 1fr;
+            }
+        }
+
+        .panel {
+            background: white;
+            border-radius: 12px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.2);
+            overflow: hidden;
+        }
+
+        .panel-header {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 15px 20px;
+            font-weight: 600;
+            font-size: 16px;
+        }
+
+        .panel-body {
+            padding: 20px;
+        }
+
+        /* 左侧控制面板 */
+        .control-section {
+            margin-bottom: 20px;
+            padding-bottom: 20px;
+            border-bottom: 1px solid #e9ecef;
+        }
+
+        .control-section:last-child {
+            border-bottom: none;
+            margin-bottom: 0;
+            padding-bottom: 0;
+        }
+
+        .control-section h3 {
+            font-size: 14px;
+            color: #333;
+            margin-bottom: 10px;
+            font-weight: 600;
+        }
+
+        .form-group {
+            margin-bottom: 12px;
+        }
+
+        .form-group label {
+            display: block;
+            margin-bottom: 6px;
+            font-size: 13px;
+            color: #555;
+            font-weight: 500;
+        }
+
+        input[type="text"],
+        input[type="file"],
+        textarea,
+        select {
+            width: 100%;
+            padding: 10px 12px;
+            border: 2px solid #e9ecef;
+            border-radius: 6px;
+            font-size: 13px;
+            transition: all 0.3s;
+            font-family: inherit;
+        }
+
+        input:focus, textarea:focus, select:focus {
+            outline: none;
+            border-color: #667eea;
+            box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+        }
+
+        textarea {
+            min-height: 80px;
+            resize: vertical;
+            font-family: monospace;
+        }
+
+        .file-list {
+            max-height: 200px;
+            overflow-y: auto;
+            border: 2px solid #e9ecef;
+            border-radius: 6px;
+            padding: 8px;
+            background: #f8f9fa;
+        }
+
+        .file-item {
+            padding: 8px 10px;
+            border-radius: 4px;
+            cursor: pointer;
+            transition: all 0.2s;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            font-size: 12px;
+            margin-bottom: 4px;
+            background: white;
+            border: 1px solid #e9ecef;
+        }
+
+        .file-item:hover {
+            background: #e3f2fd;
+            border-color: #667eea;
+        }
+
+        .file-item.selected {
+            background: #667eea;
+            color: white;
+            border-color: #667eea;
+        }
+
+        .file-name {
+            flex: 1;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+
+        .file-type {
+            font-size: 10px;
+            padding: 2px 6px;
+            border-radius: 3px;
+            background: #e9ecef;
+            color: #666;
+            margin-left: 8px;
+        }
+
+        .file-item.selected .file-type {
+            background: rgba(255,255,255,0.2);
+            color: white;
+        }
+
+        .btn {
+            width: 100%;
+            padding: 12px;
+            border: none;
+            border-radius: 6px;
+            font-size: 14px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s;
+            text-align: center;
+        }
+
+        .btn-primary {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+        }
+
+        .btn-primary:hover:not(:disabled) {
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(102, 126, 234, 0.4);
+        }
+
+        .btn-primary:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+            transform: none;
+        }
+
+        .btn-secondary {
+            background: #f8f9fa;
+            color: #333;
+            border: 2px solid #e9ecef;
+        }
+
+        .btn-secondary:hover:not(:disabled) {
+            background: #e9ecef;
+        }
+
+        /* 右侧内容展示区 */
+        .content-tabs {
+            display: flex;
+            background: #f8f9fa;
+            border-bottom: 2px solid #e9ecef;
+        }
+
+        .content-tab {
+            flex: 1;
+            padding: 15px;
+            text-align: center;
+            cursor: pointer;
+            border: none;
+            background: transparent;
+            font-size: 14px;
+            font-weight: 600;
+            color: #666;
+            transition: all 0.3s;
+            position: relative;
+        }
+
+        .content-tab:hover {
+            background: #e9ecef;
+        }
+
+        .content-tab.active {
+            color: #667eea;
+            background: white;
+        }
+
+        .content-tab.active::after {
+            content: '';
+            position: absolute;
+            bottom: -2px;
+            left: 0;
+            right: 0;
+            height: 2px;
+            background: #667eea;
+        }
+
+        .content-body {
+            padding: 25px;
+            min-height: 400px;
+            max-height: 600px;
+            overflow-y: auto;
+        }
+
+        .result-section {
+            margin-bottom: 20px;
+        }
+
+        .result-section h3 {
+            color: #333;
+            font-size: 16px;
+            margin-bottom: 12px;
+            padding-bottom: 8px;
+            border-bottom: 2px solid #667eea;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .badge {
+            font-size: 11px;
+            padding: 3px 8px;
+            border-radius: 12px;
+            background: #e3f2fd;
+            color: #667eea;
+            font-weight: 600;
+        }
+
+        /* Markdown 样式 */
+        .markdown-content {
+            background: #f8f9fa;
+            padding: 20px;
+            border-radius: 8px;
+            line-height: 1.8;
+            font-size: 14px;
+            border: 1px solid #e9ecef;
+        }
+
+        .markdown-content h1 {
+            font-size: 24px;
+            margin-bottom: 16px;
+            color: #333;
+        }
+
+        .markdown-content h2 {
+            font-size: 18px;
+            margin: 20px 0 12px;
+            color: #444;
+            padding-bottom: 6px;
+            border-bottom: 1px solid #e9ecef;
+        }
+
+        .markdown-content h3 {
+            font-size: 16px;
+            margin: 16px 0 10px;
+            color: #555;
+        }
+
+        .markdown-content ul, .markdown-content ol {
+            margin-left: 20px;
+            margin-bottom: 16px;
+        }
+
+        .markdown-content li {
+            margin-bottom: 8px;
+            line-height: 1.6;
+        }
+
+        .markdown-content strong {
+            color: #667eea;
+            font-weight: 600;
+        }
+
+        .markdown-content blockquote {
+            margin: 12px 0;
+            padding: 12px 16px;
+            background: #fff3cd;
+            border-left: 4px solid #ffc107;
+            color: #856404;
+            border-radius: 4px;
+        }
+
+        .markdown-content code {
+            background: #e9ecef;
+            padding: 2px 6px;
+            border-radius: 3px;
+            font-family: 'Courier New', monospace;
+            font-size: 13px;
+            color: #d63384;
+        }
+
+        .markdown-content pre {
+            background: #2d2d2d;
+            color: #f8f8f2;
+            padding: 15px;
+            border-radius: 6px;
+            overflow-x: auto;
+            margin-bottom: 16px;
+        }
+
+        .markdown-content pre code {
+            background: transparent;
+            padding: 0;
+            color: inherit;
+        }
+
+        /* 要点列表 */
+        .key-points {
+            background: linear-gradient(135deg, #e3f2fd 0%, #f3e5f5 100%);
+            padding: 16px;
+            border-radius: 8px;
+            margin-bottom: 16px;
+            border: 1px solid #bbdefb;
+        }
+
+        .key-point-item {
+            background: white;
+            padding: 10px 12px;
+            margin-bottom: 8px;
+            border-radius: 6px;
+            border-left: 3px solid #667eea;
+            font-size: 13px;
+            line-height: 1.5;
+        }
+
+        .key-point-item:last-child {
+            margin-bottom: 0;
+        }
+
+        /* 截图展示 */
+        .screenshots-preview {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+            gap: 12px;
+            margin-top: 12px;
+        }
+
+        .screenshot-item {
+            background: #f8f9fa;
+            padding: 8px;
+            border-radius: 6px;
+            text-align: center;
+            font-size: 11px;
+            color: #666;
+            border: 1px solid #e9ecef;
+        }
+
+        .screenshot-path {
+            word-break: break-all;
+            margin-top: 4px;
+            font-family: monospace;
+        }
+
+        /* 状态提示 */
+        .status-message {
+            padding: 12px 16px;
+            border-radius: 6px;
+            margin-bottom: 16px;
+            font-size: 13px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .status-message.loading {
+            background: #e3f2fd;
+            color: #1976d2;
+            border: 1px solid #bbdefb;
+        }
+
+        .status-message.success {
+            background: #d4edda;
+            color: #155724;
+            border: 1px solid #c3e6cb;
+        }
+
+        .status-message.error {
+            background: #f8d7da;
+            color: #721c24;
+            border: 1px solid #f5c6cb;
+        }
+
+        .status-message.info {
+            background: #d1ecf1;
+            color: #0c5460;
+            border: 1px solid #bee5eb;
+        }
+
+        /* 进度条 */
+        .progress-container {
+            margin: 15px 0;
+            background: #e9ecef;
+            border-radius: 8px;
+            height: 8px;
+            overflow: hidden;
+            display: none;
+        }
+
+        .progress-container.active {
+            display: block;
+        }
+
+        .progress-bar {
+            height: 100%;
+            background: linear-gradient(90deg, #667eea 0%, #764ba2 100%);
+            width: 0%;
+            transition: width 0.3s;
+            border-radius: 8px;
+        }
+
+        .progress-text {
+            text-align: center;
+            font-size: 12px;
+            color: #666;
+            margin-top: 6px;
+            font-weight: 500;
+        }
+
+        /* 配置状态 */
+        .config-status {
+            background: #fff3cd;
+            padding: 10px 12px;
+            border-radius: 6px;
+            font-size: 12px;
+            margin-top: 8px;
+            border: 1px solid #ffeaa7;
+        }
+
+        .config-status.ok {
+            background: #d4edda;
+            border-color: #c3e6cb;
+            color: #155724;
+        }
+
+        /* 滚动条美化 */
+        .content-body::-webkit-scrollbar,
+        .file-list::-webkit-scrollbar {
+            width: 6px;
+        }
+
+        .content-body::-webkit-scrollbar-track,
+        .file-list::-webkit-scrollbar-track {
+            background: #f1f1f1;
+            border-radius: 3px;
+        }
+
+        .content-body::-webkit-scrollbar-thumb,
+        .file-list::-webkit-scrollbar-thumb {
+            background: #667eea;
+            border-radius: 3px;
+        }
+
+        .content-body::-webkit-scrollbar-thumb:hover,
+        .file-list::-webkit-scrollbar-thumb:hover {
+            background: #764ba2;
+        }
+
+        /* 空状态 */
+        .empty-state {
+            text-align: center;
+            padding: 40px 20px;
+            color: #999;
+        }
+
+        .empty-state-icon {
+            font-size: 48px;
+            margin-bottom: 12px;
+            opacity: 0.5;
+        }
+
+        .empty-state-text {
+            font-size: 14px;
+        }
+
+        /* 加载动画 */
+        .spinner {
+            display: inline-block;
+            width: 14px;
+            height: 14px;
+            border: 2px solid rgba(255,255,255,0.3);
+            border-radius: 50%;
+            border-top-color: white;
+            animation: spin 1s linear infinite;
+        }
+
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+
+        .loading-spinner {
+            display: inline-block;
+            width: 16px;
+            height: 16px;
+            border: 2px solid #667eea;
+            border-radius: 50%;
+            border-top-color: transparent;
+            animation: spin 1s linear infinite;
+        }
+
+        /* 折叠面板 */
+        .collapsible {
+            margin-bottom: 12px;
+            border: 1px solid #e9ecef;
+            border-radius: 6px;
+            overflow: hidden;
+        }
+
+        .collapsible-header {
+            background: #f8f9fa;
+            padding: 10px 12px;
+            cursor: pointer;
+            font-weight: 600;
+            font-size: 13px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            transition: background 0.2s;
+        }
+
+        .collapsible-header:hover {
+            background: #e9ecef;
+        }
+
+        .collapsible-content {
+            padding: 12px;
+            background: white;
+            border-top: 1px solid #e9ecef;
+            font-size: 12px;
+            font-family: monospace;
+            white-space: pre-wrap;
+            word-break: break-all;
+            max-height: 200px;
+            overflow-y: auto;
+        }
+
+        .collapsible-content::-webkit-scrollbar {
+            width: 4px;
+        }
+
+        .collapsible-content::-webkit-scrollbar-thumb {
+            background: #667eea;
+            border-radius: 2px;
+        }
+    </style>
+</head>
+<body>
+    <div id="app">
+        <!-- 头部 -->
+        <div class="header">
+            <h1>🎬 音频/视频AI总结工具</h1>
+            <p>B站语音识别 + 自动摘要 + Markdown输出</p>
+        </div>
+
+        <!-- 主布局 -->
+        <div class="main-layout">
+            <!-- 左侧：控制面板 -->
+            <div class="panel">
+                <div class="panel-header">
+                    🔧 控制面板
+                </div>
+                <div class="panel-body">
+
+                    <!-- 步骤1：文件选择 -->
+                    <div class="control-section">
+                        <h3>📁 1. 选择文件</h3>
+                        <div class="form-group">
+                            <label>下载目录文件：</label>
+                            <div class="file-list" v-if="fileList.length > 0">
+                                <div
+                                    class="file-item"
+                                    :class="{ selected: selectedFile === file.path }"
+                                    v-for="file in fileList"
+                                    :key="file.path"
+                                    @click="selectFile(file.path)"
+                                >
+                                    <span class="file-name">{{ file.name }}</span>
+                                    <span class="file-type">{{ file.type }}</span>
+                                </div>
+                            </div>
+                            <div v-else class="status-message info">
+                                <span>⚠️</span>
+                                <span>{{ fileListMessage }}</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- 步骤2：视频处理 -->
+                    <div class="control-section">
+                        <h3>🎬 2. 视频处理</h3>
+                        <div class="form-group">
+                            <label>视频路径（或使用上方选择）：</label>
+                            <input type="text" v-model="videoPath" placeholder="D:/download/video.mp4">
+                        </div>
+                        <button class="btn btn-primary" @click="processVideo" :disabled="processing || !videoPath">
+                            <span v-if="processing">
+                                <span class="spinner"></span> 处理中...
+                            </span>
+                            <span v-else>开始处理视频</span>
+                        </button>
+
+                        <div class="progress-container" :class="{ active: processing }">
+                            <div class="progress-bar" :style="{ width: progress + '%' }"></div>
+                        </div>
+                        <div v-if="processing" class="progress-text">{{ progress }}% - {{ progressMessage }}</div>
+                    </div>
+
+                    <!-- 步骤3：AI总结 -->
+                    <div class="control-section">
+                        <h3>🤖 3. AI总结</h3>
+                        <div class="form-group">
+                            <label>文本内容：</label>
+                            <textarea v-model="aiText" placeholder="粘贴文本或从视频处理结果中获取..."></textarea>
+                        </div>
+                        <div class="form-group">
+                            <label>截图路径（可选，多个用逗号分隔）：</label>
+                            <input type="text" v-model="aiScreenshots" placeholder="screenshot_1.jpg, screenshot_2.jpg">
+                        </div>
+                        <button class="btn btn-primary" @click="aiSummarize" :disabled="summarizing || !aiText">
+                            <span v-if="summarizing">
+                                <span class="spinner"></span> 总结中...
+                            </span>
+                            <span v-else>生成AI总结</span>
+                        </button>
+                    </div>
+
+                    <!-- 配置 -->
+                    <div class="control-section">
+                        <h3>⚙️ 4. AI配置（可选）</h3>
+                        <div class="form-group">
+                            <label>API Key：</label>
+                            <input type="text" v-model="config.api_key" placeholder="留空使用本地算法">
+                        </div>
+                        <div class="form-group">
+                            <label>API URL：</label>
+                            <input type="text" v-model="config.api_url" placeholder="例如：https://api.openai.com/v1/chat/completions">
+                        </div>
+                        <div class="form-group">
+                            <label>模型：</label>
+                            <input type="text" v-model="config.model" placeholder="gpt-4, gpt-3.5-turbo">
+                        </div>
+                        <div class="form-group">
+                            <label>自定义Prompt：</label>
+                            <textarea v-model="config.custom_prompt" placeholder="留空使用默认模板"></textarea>
+                        </div>
+                        <button class="btn btn-secondary" @click="saveConfig" :disabled="configSaving">
+                            {{ configSaving ? '保存中...' : '保存配置' }}
+                        </button>
+                        <div class="config-status" v-if="configStatus" :class="{ ok: configStatusOk }">
+                            {{ configStatus }}
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 右侧：结果展示 -->
+            <div class="panel">
+                <div class="panel-header">
+                    📊 结果展示
+                </div>
+
+                <!-- 标签页 -->
+                <div class="content-tabs">
+                    <button
+                        class="content-tab"
+                        :class="{ active: activeTab === 'summary' }"
+                        @click="activeTab = 'summary'"
+                    >
+                        AI总结
+                    </button>
+                    <button
+                        class="content-tab"
+                        :class="{ active: activeTab === 'details' }"
+                        @click="activeTab = 'details'"
+                    >
+                        原始数据
+                    </button>
+                    <button
+                        class="content-tab"
+                        :class="{ active: activeTab === 'screenshots' }"
+                        @click="activeTab = 'screenshots'"
+                    >
+                        截图管理
+                    </button>
+                </div>
+
+                <div class="content-body">
+                    <!-- 通知 -->
+                    <div v-if="message.text" class="status-message" :class="message.type">
+                        <span v-if="message.type === 'loading'">⏳</span>
+                        <span v-else-if="message.type === 'success'">✅</span>
+                        <span v-else-if="message.type === 'error'">❌</span>
+                        <span v-else>ℹ️</span>
+                        {{ message.text }}
+                    </div>
+
+                    <!-- 总结标签页 -->
+                    <div v-show="activeTab === 'summary'">
+                        <div v-if="aiResult && aiResult.success">
+                            <div class="result-section">
+                                <h3>
+                                    📋 核心要点
+                                    <span class="badge">{{ aiResult.points.length }} 项</span>
+                                </h3>
+                                <div class="key-points">
+                                    <div class="key-point-item" v-for="(point, index) in aiResult.points" :key="index">
+                                        <strong>要点{{ index + 1 }}：</strong>{{ point }}
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div class="result-section">
+                                <h3>📝 完整总结</h3>
+                                <div class="markdown-content" v-html="renderMarkdown(aiResult.markdown)"></div>
+                            </div>
+
+                            <div class="result-section" v-if="aiResult.screenshots && aiResult.screenshots.length > 0">
+                                <h3>📸 相关截图</h3>
+                                <div class="screenshots-preview">
+                                    <div class="screenshot-item" v-for="shot in aiResult.screenshots" :key="shot">
+                                        <div>📷</div>
+                                        <div class="screenshot-path">{{ shot }}</div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                        <div v-else class="empty-state">
+                            <div class="empty-state-icon">🤖</div>
+                            <div class="empty-state-text">暂无AI总结结果，请在左侧操作</div>
+                        </div>
+                    </div>
+
+                    <!-- 详情标签页 -->
+                    <div v-show="activeTab === 'details'">
+                        <div v-if="processResult && processResult.success">
+                            <div class="result-section">
+                                <h3>📊 视频信息</h3>
+                                <div class="markdown-content" style="background: white;">
+                                    <p><strong>视频路径：</strong><br><code>{{ processResult.audio_path }}</code></p>
+                                    <p><strong>SRT字幕：</strong><br><code>{{ processResult.srt_path }}</code></p>
+                                    <p><strong>输出目录：</strong><br><code>{{ processResult.output_dir }}</code></p>
+                                    <p><strong>视频时长：</strong>{{ formatDuration(processResult.duration) }}</p>
+                                    <p><strong>识别段数：</strong>{{ processResult.segment_count }} 段</p>
+                                </div>
+                            </div>
+
+                            <div class="result-section">
+                                <div class="collapsible" v-for="(seg, index) in processResult.segments.slice(0, 10)" :key="index">
+                                    <div class="collapsible-header" @click="toggleSegment(index)">
+                                        <span>#{{ index + 1 }} [{{ seg.start_time.toFixed(2) }}-{{ seg.end_time.toFixed(2) }}s]</span>
+                                        <span>{{ expandedSegments.includes(index) ? '▼' : '▶' }}</span>
+                                    </div>
+                                    <div class="collapsible-content" v-if="expandedSegments.includes(index)">
+                                        {{ seg.text }}
+                                    </div>
+                                </div>
+                                <div v-if="processResult.segments.length > 10" style="text-align: center; color: #666; font-size: 12px; margin-top: 8px;">
+                                    ... 还有 {{ processResult.segments.length - 10 }} 段
+                                </div>
+                            </div>
+
+                            <div class="result-section">
+                                <h3>📄 SRT预览</h3>
+                                <div class="collapsible">
+                                    <div class="collapsible-header" @click="showSRT = !showSRT">
+                                        <span>点击展开/折叠SRT内容</span>
+                                        <span>{{ showSRT ? '▼' : '▶' }}</span>
+                                    </div>
+                                    <div class="collapsible-content" v-if="showSRT" style="white-space: pre; line-height: 1.6;">
+                                        {{ processResult.srt_content }}
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                        <div v-else class="empty-state">
+                            <div class="empty-state-icon">📊</div>
+                            <div class="empty-state-text">暂无处理结果，请先处理视频</div>
+                        </div>
+                    </div>
+
+                    <!-- 截图标签页 -->
+                    <div v-show="activeTab === 'screenshots'">
+                        <div v-if="processResult && processResult.screenshots && processResult.screenshots.length > 0">
+                            <div class="result-section">
+                                <h3>📸 提取的截图</h3>
+                                <div style="background: #f8f9fa; padding: 15px; border-radius: 8px; border: 1px solid #e9ecef;">
+                                    <div v-for="shot in processResult.screenshots" :key="shot"
+                                         style="padding: 8px 0; border-bottom: 1px solid #e9ecef; font-family: monospace; font-size: 12px;">
+                                        {{ shot }}
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div class="result-section">
+                                <h3>💡 使用说明</h3>
+                                <div style="background: #fff3cd; padding: 15px; border-radius: 8px; border: 1px solid #ffeaa7; font-size: 13px; line-height: 1.6;">
+                                    <p style="margin-bottom: 8px;"><strong>📌 截图说明：</strong></p>
+                                    <ul style="margin-left: 20px;">
+                                        <li>截图已保存在视频输出目录</li>
+                                        <li>可以在AI总结时引用截图路径</li>
+                                        <li>截图文件名会显示在总结的Markdown中</li>
+                                        <li>支持在左侧输入框填入截图路径进行AI总结</li>
+                                    </ul>
+                                </div>
+                            </div>
+                        </div>
+                        <div v-else class="empty-state">
+                            <div class="empty-state-icon">📸</div>
+                            <div class="empty-state-text">暂无截图，请先处理视频</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const { createApp } = Vue;
+
+        createApp({
+            data() {
+                return {
+                    // 文件列表
+                    fileList: [],
+                    fileListMessage: '正在加载...',
+                    selectedFile: '',
+
+                    // 输入数据
+                    videoPath: '',
+                    aiText: '',
+                    aiScreenshots: '',
+
+                    // 处理状态
+                    processing: false,
+                    summarizing: false,
+                    configSaving: false,
+                    progress: 0,
+                    progressMessage: '',
+
+                    // 配置
+                    config: {
+                        api_key: '',
+                        api_url: '',
+                        model: '',
+                        custom_prompt: ''
+                    },
+                    configStatus: '',
+                    configStatusOk: false,
+
+                    // 结果
+                    processResult: null,
+                    aiResult: null,
+
+                    // UI状态
+                    activeTab: 'summary',
+                    message: {
+                        text: '',
+                        type: 'info'
+                    },
+
+                    // 展开状态
+                    expandedSegments: [],
+                    showSRT: false
+                };
+            },
+            mounted() {
+                this.loadFiles();
+                this.loadConfig();
+            },
+            methods: {
+                // 加载文件列表
+                async loadFiles() {
+                    try {
+                        this.fileListMessage = '正在加载目录...';
+                        const response = await fetch('/api/list-files');
+                        const data = await response.json();
+
+                        if (data.success) {
+                            this.fileList = data.files;
+                            this.fileListMessage = this.fileList.length > 0 ? '点击文件选择' : '目录为空';
+                        } else {
+                            this.fileListMessage = data.message || '加载失败';
+                        }
+                    } catch (error) {
+                        this.fileListMessage = '无法连接服务';
+                        console.error('加载文件失败:', error);
+                    }
+                },
+
+                // 选择文件
+                selectFile(path) {
+                    this.selectedFile = path;
+                    this.videoPath = path;
+                    this.showMessage('已选择文件：' + path, 'info');
+                },
+
+                // 处理视频
+                async processVideo() {
+                    if (!this.videoPath) {
+                        this.showMessage('请先选择或输入视频路径', 'error');
+                        return;
+                    }
+
+                    this.processing = true;
+                    this.progress = 0;
+                    this.progressMessage = '开始处理...';
+                    this.expandedSegments = [];
+                    this.showSRT = false;
+
+                    // 模拟进度条
+                    const progressInterval = setInterval(() => {
+                        if (this.progress < 85) {
+                            this.progress += Math.random() * 15;
+                            if (this.progress > 85) this.progress = 85;
+                        }
+                    }, 500);
+
+                    try {
+                        const response = await fetch('/api/process-video', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ video_path: this.videoPath })
+                        });
+
+                        clearInterval(progressInterval);
+                        this.progress = 100;
+                        this.progressMessage = '处理完成';
+
+                        const data = await response.json();
+
+                        if (data.success) {
+                            this.processResult = data;
+                            this.aiText = this.generateTextFromSegments(data.segments);
+
+                            // 自动填充截图路径
+                            if (data.screenshots && data.screenshots.length > 0) {
+                                const screenshotNames = data.screenshots.map(s => s.split('\\').pop().split('/').pop());
+                                this.aiScreenshots = screenshotNames.join(', ');
+                            }
+
+                            this.activeTab = 'details';
+                            this.showMessage('视频处理完成！', 'success');
+                        } else {
+                            this.showMessage(data.message || '处理失败', 'error');
+                        }
+                    } catch (error) {
+                        clearInterval(progressInterval);
+                        this.progress = 0;
+                        this.progressMessage = '';
+                        this.showMessage('请求失败：' + error.message, 'error');
+                    } finally {
+                        setTimeout(() => {
+                            this.processing = false;
+                            this.progress = 0;
+                            this.progressMessage = '';
+                        }, 1000);
+                    }
+                },
+
+                // AI总结
+                async aiSummarize() {
+                    if (!this.aiText) {
+                        this.showMessage('请先输入要总结的文本', 'error');
+                        return;
+                    }
+
+                    this.summarizing = true;
+                    this.showMessage('正在生成总结...', 'loading');
+
+                    try {
+                        const screenshots = this.aiScreenshots
+                            ? this.aiScreenshots.split(',').map(s => s.trim()).filter(s => s)
+                            : [];
+
+                        const response = await fetch('/api/ai-summarize', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({
+                                text: this.aiText,
+                                prompt: this.config.custom_prompt,
+                                segments: [], // 如果有视频处理结果，可以传入
+                                screenshots: screenshots
+                            })
+                        });
+
+                        const data = await response.json();
+
+                        if (data.success) {
+                            this.aiResult = data;
+                            this.aiResult.screenshots = screenshots;
+                            this.activeTab = 'summary';
+                            this.showMessage('AI总结完成！', 'success');
+                        } else {
+                            this.showMessage(data.message || '总结失败', 'error');
+                        }
+                    } catch (error) {
+                        this.showMessage('请求失败：' + error.message, 'error');
+                    } finally {
+                        this.summarizing = false;
+                    }
+                },
+
+                // 加载配置
+                async loadConfig() {
+                    try {
+                        const response = await fetch('/api/config');
+                        const data = await response.json();
+
+                        if (data.success && data.config) {
+                            this.config = data.config;
+                            this.updateConfigStatus();
+                        }
+                    } catch (error) {
+                        console.error('加载配置失败:', error);
+                    }
+                },
+
+                // 保存配置
+                async saveConfig() {
+                    this.configSaving = true;
+
+                    try {
+                        const response = await fetch('/api/config', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify(this.config)
+                        });
+
+                        const data = await response.json();
+
+                        if (data.success) {
+                            this.showMessage('配置保存成功', 'success');
+                            this.updateConfigStatus();
+                        } else {
+                            this.showMessage(data.message || '保存失败', 'error');
+                        }
+                    } catch (error) {
+                        this.showMessage('保存失败：' + error.message, 'error');
+                    } finally {
+                        this.configSaving = false;
+                    }
+                },
+
+                // 更新配置状态显示
+                updateConfigStatus() {
+                    if (this.config.api_key && this.config.api_url) {
+                        this.configStatus = `已配置：${this.config.model || '默认模型'}`;
+                        this.configStatusOk = true;
+                    } else {
+                        this.configStatus = '未配置API，使用本地算法';
+                        this.configStatusOk = false;
+                    }
+                },
+
+                // 生成文本
+                generateTextFromSegments(segments) {
+                    if (!segments || segments.length === 0) return '';
+                    return segments.map(s => s.text).join('。') + '。';
+                },
+
+                // 渲染Markdown为HTML（简单实现）
+                renderMarkdown(markdown) {
+                    if (!markdown) return '';
+
+                    let html = markdown;
+
+                    // 标题
+                    html = html.replace(/^# (.+)$/gm, '<h1>$1</h1>');
+                    html = html.replace(/^## (.+)$/gm, '<h2>$1</h2>');
+                    html = html.replace(/^### (.+)$/gm, '<h3>$1</h3>');
+
+                    // 列表
+                    html = html.replace(/^- (.+)$/gm, '<li>$1</li>');
+                    html = html.replace(/(<li>.*<\/li>)/s, '<ul>$1</ul>');
+
+                    // 引用
+                    html = html.replace(/^> (.+)$/gm, '<blockquote>$1</blockquote>');
+
+                    // 强调
+                    html = html.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
+                    html = html.replace(/\*(.+?)\*/g, '<em>$1</em>');
+
+                    // 换行
+                    html = html.replace(/\n\n/g, '</p><p>');
+                    html = '<p>' + html + '</p>';
+
+                    // 清理多余的p标签
+                    html = html.replace(/<p><\/p>/g, '');
+                    html = html.replace(/<p><h/g, '<h');
+                    html = html.replace(/<\/h(\d)><\/p>/g, '</h$1>');
+                    html = html.replace(/<p><ul>/g, '<ul>');
+                    html = html.replace(/<\/ul><\/p>/g, '</ul>');
+                    html = html.replace(/<p><blockquote>/g, '<blockquote>');
+                    html = html.replace(/<\/blockquote><\/p>/g, '</blockquote>');
+
+                    return html;
+                },
+
+                // 格式化时长
+                formatDuration(seconds) {
+                    if (!seconds || seconds <= 0) return '未知';
+                    const minutes = Math.floor(seconds / 60);
+                    const secs = Math.floor(seconds % 60);
+                    return `${minutes}分${secs}秒`;
+                },
+
+                // 切换段落展开
+                toggleSegment(index) {
+                    const pos = this.expandedSegments.indexOf(index);
+                    if (pos > -1) {
+                        this.expandedSegments.splice(pos, 1);
+                    } else {
+                        this.expandedSegments.push(index);
+                    }
+                },
+
+                // 显示消息
+                showMessage(text, type = 'info') {
+                    this.message = { text, type };
+                    setTimeout(() => {
+                        this.message.text = '';
+                    }, 5000);
+                }
+            }
+        }).mount('#app');
+    </script>
+</body>
+</html>
