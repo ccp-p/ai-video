@@ -1,0 +1,13 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(go build:*)",
+      "Bash(go mod tidy:*)",
+      "Bash(dir:*)",
+      "Bash(findstr:*)",
+      "Bash(go version:*)",
+      "Bash(ccode_enhanced.exe:*)",
+      "Bash(git add:*)"
+    ]
+  }
+}
