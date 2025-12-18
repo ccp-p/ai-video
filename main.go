@@ -207,6 +207,12 @@ func (vp *VideoProcessor) DeleteOutput() error {
 func (vp *VideoProcessor) ExtractAudio() (string, error) {
 	audioPath := filepath.Join(vp.OutputDir, "audio.mp3")
 
+	// 检查音频文件是否已存在，如果存在则直接复用
+	if _, err := os.Stat(audioPath); err == nil {
+		Info("检测到已存在的音频文件，跳过提取: %s", audioPath)
+		return audioPath, nil
+	}
+
 	cmd := exec.Command("ffmpeg", "-i", vp.VideoPath, "-vn", "-acodec", "libmp3lame",
 		"-ac", "2", "-ar", "16000", "-y", audioPath)
 
@@ -1242,9 +1248,16 @@ type HTTPServer struct {
 }
 
 func NewHTTPServer(port string) *HTTPServer {
+	// 检查环境变量中的 API Key
+	config := AIConfig{}
+	if envKey := os.Getenv("ANTHROPIC_API_KEY"); envKey != "" {
+		config.APIKey = envKey
+		Info("已从环境变量加载 ANTHROPIC_API_KEY")
+	}
+
 	return &HTTPServer{
 		port:     port,
-		aiConfig: AIConfig{},
+		aiConfig: config,
 	}
 }
 
@@ -1364,7 +1377,7 @@ func (s *HTTPServer) handleProcessVideo(w http.ResponseWriter, r *http.Request) 
 
 	// 如果没有缓存，才进行音频提取和ASR
 	if !segmentsLoaded {
-		// 提取音频
+		// 提取音频 (内部已实现存在检查)
 		audioPath, err = vp.ExtractAudio()
 		if err != nil {
 			w.Header().Set("Content-Type", "application/json")
@@ -1374,11 +1387,11 @@ func (s *HTTPServer) handleProcessVideo(w http.ResponseWriter, r *http.Request) 
 			})
 			return
 		}
-		// 确保处理结束后删除音频文件
-		defer func() {
-			Info("清理临时音频文件: %s", audioPath)
-			os.Remove(audioPath)
-		}()
+		// 移除：不再自动删除音频文件，以便复用
+		// defer func() {
+		// 	Info("清理临时音频文件: %s", audioPath)
+		// 	os.Remove(audioPath)
+		// }()
 
 		// ASR识别 - 禁用内部缓存，使用我们自己的文件缓存
 		asrClient, err := NewBcutASR(audioPath, false)

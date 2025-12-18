@@ -530,15 +530,24 @@
                     <!-- 处理控制 -->
                     <div class="control-section">
                         <h3>⚡ 操作</h3>
-                        <button class="btn btn-primary" @click="processVideo" :disabled="processing || !videoPath">
-                            {{ processing ? '处理中 ' + progress + '%' : '开始处理 & 自动总结' }}
-                        </button>
+                        <div style="display: flex; gap: 10px; flex-wrap: wrap;">
+                            <button class="btn btn-primary" @click="processVideo" :disabled="processing || !videoPath">
+                                {{ getProcessButtonText() }}
+                            </button>
+
+                            <!-- 独立总结按钮 -->
+                            <button class="btn" style="background: #2c3e50; color: white; flex: 1;"
+                                    @click="retrySummarize"
+                                    v-if="processResult && processResult.success && !processing">
+                                🔄 仅重试 AI总结
+                            </button>
+                        </div>
+
                         <div class="progress-bar" v-if="processing">
                             <div class="progress-fill" :style="{ width: progress + '%' }"></div>
                         </div>
 
-                        <button class="btn btn-danger" @click="deleteOutput"
-                            v-if="processResult && processResult.success">
+                        <button class="btn btn-danger" @click="deleteOutput" v-if="processResult && processResult.success">
                             🗑️ 删除处理结果
                         </button>
                     </div>
@@ -663,6 +672,7 @@
                     downloadDir: '', // 从后端获取的下载目录基路径
 
                     processing: false,
+                    processStep: 'idle', // idle, extracting, summarizing
                     progress: 0,
 
                     config: { api_key: '', api_url: '', model: '', custom_prompt: '' },
@@ -753,10 +763,20 @@
                     this.chatHistory = []; // 切换视频清空聊天
                 },
 
+                getProcessButtonText() {
+                    if (!this.processing) return '开始处理 & 自动总结';
+                    switch (this.processStep) {
+                        case 'extracting': return '分离音频 & 语音识别中...';
+                        case 'summarizing': return '正在生成 AI 总结...';
+                        default: return '处理中...';
+                    }
+                },
+
                 async processVideo() {
                     this.processing = true;
+                    this.processStep = 'extracting';
                     this.progress = 0;
-                    this.showMessage('开始处理视频...', 'info');
+                    this.showMessage('开始分离音频与识别...', 'info');
 
                     // 模拟进度
                     const timer = setInterval(() => { if (this.progress < 90) this.progress += 5; }, 1000);
@@ -774,7 +794,7 @@
 
                         if (data.success) {
                             this.processResult = data;
-                            this.showMessage('处理完成', 'success');
+                            this.showMessage('识别完成，准备生成总结...', 'success');
 
                             // 检查是否有缓存的AI结果
                             if (data.ai_result) {
@@ -782,20 +802,29 @@
                                 this.showMessage('已加载缓存的AI总结', 'success');
                             } else {
                                 // 没有缓存，自动触发总结
-                                this.showMessage('正在生成AI总结...', 'info');
                                 await this.aiSummarize();
                             }
                         } else {
-                            this.showMessage('处理失败: ' + data.message, 'error');
+                            this.showMessage('识别失败: ' + data.message, 'error');
                         }
                     } catch (e) {
                         this.showMessage('请求错误: ' + e.message, 'error');
                     } finally {
                         this.processing = false;
+                        this.processStep = 'idle';
                     }
                 },
 
+                async retrySummarize() {
+                    if (!this.processResult) return;
+                    this.processing = true;
+                    await this.aiSummarize();
+                    this.processing = false;
+                },
+
                 async aiSummarize() {
+                    this.processStep = 'summarizing';
+                    this.showMessage('正在生成AI总结...', 'info');
                     try {
                         const text = this.processResult.segments.map(s => s.text).join(' ');
                         const res = await fetch('/api/ai-summarize', {
@@ -813,9 +842,12 @@
                             this.aiResult = data;
                             this.activeTab = 'summary';
                             this.showMessage('AI总结完成', 'success');
+                        } else {
+                            throw new Error(data.message || '总结失败');
                         }
                     } catch (e) {
                         this.showMessage('总结失败: ' + e.message, 'error');
+                        console.log('AI总结失败: ' + e.message + '\n请检查API配置或网络，然后点击“仅重试 AI总结”按钮。');
                     }
                 },
 
