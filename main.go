@@ -42,7 +42,7 @@ const (
 	RetryLongDelay = time.Second * 3
 
 	// HTTP 服务
-	HTTP_PORT  = "8080"
+	HTTP_PORT    = "8080"
 	DOWNLOAD_DIR = "D:/download"
 )
 
@@ -73,11 +73,11 @@ type AIConfig struct {
 
 // AIRequest AI请求
 type AIRequest struct {
-	Text         string       `json:"text"`
-	Prompt       string       `json:"prompt"`
-	Segments     []DataSegment `json:"segments"`
-	Screenshots  []string     `json:"screenshots"`
-	VideoPath    string       `json:"video_path"`
+	Text        string        `json:"text"`
+	Prompt      string        `json:"prompt"`
+	Segments    []DataSegment `json:"segments"`
+	Screenshots []string      `json:"screenshots"`
+	VideoPath   string        `json:"video_path"` // 必须传入视频路径以进行截图
 }
 
 // AIResponse AI响应
@@ -187,7 +187,7 @@ func (vp *VideoProcessor) ExtractAudio() (string, error) {
 	return audioPath, nil
 }
 
-// ExtractScreenshots 提取视频截图
+// ExtractScreenshots 提取视频截图 (保留此方法工具，但在流程中改为按需提取)
 func (vp *VideoProcessor) ExtractScreenshots(duration float64) ([]string, error) {
 	screenshotCount := 5 // 提取5张截图
 	screenshotInterval := duration / float64(screenshotCount+1)
@@ -212,6 +212,25 @@ func (vp *VideoProcessor) ExtractScreenshots(duration float64) ([]string, error)
 	}
 
 	return screenshots, nil
+}
+
+// ExtractScreenshotAt 在指定时间点提取截图
+func (vp *VideoProcessor) ExtractScreenshotAt(seconds float64) (string, error) {
+	filename := fmt.Sprintf("ai_capture_%.2f.jpg", seconds)
+	screenshotPath := filepath.Join(vp.OutputDir, filename)
+
+	// 如果文件已存在，直接返回
+	if _, err := os.Stat(screenshotPath); err == nil {
+		return screenshotPath, nil
+	}
+
+	cmd := exec.Command("ffmpeg", "-ss", fmt.Sprintf("%.2f", seconds),
+		"-i", vp.VideoPath, "-vframes", "1", "-q:v", "2", "-y", screenshotPath)
+
+	if err := cmd.Run(); err != nil {
+		return "", err
+	}
+	return screenshotPath, nil
 }
 
 // GetVideoDuration 获取视频时长
@@ -811,37 +830,48 @@ func NewAISummarizer(config AIConfig) *AISummarizer {
 
 // Summarize 调用AI进行总结
 func (ai *AISummarizer) Summarize(req AIRequest) (AIResponse, error) {
-	// 构建完整的文本内容
-	var fullText string
+	// 构建完整的文本内容（带时间戳，方便AI定位）
+	var fullTextBuilder bytes.Buffer
 	if len(req.Segments) > 0 {
-		// 使用字幕内容
 		for _, seg := range req.Segments {
-			fullText += seg.Text + " "
+			// 格式：[12.5s] 这是一段话。
+			fullTextBuilder.WriteString(fmt.Sprintf("[%.2fs] %s\n", seg.StartTime, seg.Text))
 		}
 	} else {
-		// 使用直接输入的文本
-		fullText = req.Text
+		fullTextBuilder.WriteString(req.Text)
 	}
+	fullText := fullTextBuilder.String()
 
-	// 构建prompt
+	// 构建高质量 Prompt
 	prompt := ai.config.CustomPrompt
 	if prompt == "" {
-		prompt = "请详细总结以下内容，要求：\n1. 提炼核心要点\n2. 用Markdown格式输出\n3. 结构清晰，易于阅读"
+		prompt = `你是一个专业的视频内容分析师。请根据提供的视频字幕内容（包含时间戳），生成一份高质量的图文总结。
+
+要求：
+1. **深度解析**：不要只列流水账，要提炼核心观点、逻辑脉络和关键细节。
+2. **结构清晰**：使用 Markdown 的一级标题、二级标题、列表、引用等语法，排版美观。
+3. **智能配图**：这是最重要的！在总结关键画面、重要演示或核心观点时，必须插入截图标记。
+   - 标记格式：[[CAPTURE: 秒数]]
+   - 例如：[[CAPTURE: 15.5]] 表示截取第15.5秒的画面。
+   - 请根据字幕中的时间戳 [xx.xxs] 选择最能代表该段落内容的时刻。
+   - 截图标记应单独占一行，或者放在段落的末尾。
+4. **语言风格**：专业、简洁、流畅，去除口语废话。
+
+请开始总结：`
 	}
 
 	// 如果有截图，提及截图
-	screenshotInfo := ""
 	if len(req.Screenshots) > 0 {
-		screenshotInfo = fmt.Sprintf("\n注意：视频截图已保存在：%s，这些截图可以作为要点的视觉参考",
+		 fmt.Sprintf("\n注意：视频截图已保存在：%s，这些截图可以作为要点的视觉参考",
 			strings.Join(req.Screenshots, ", "))
 	}
 
 	// 完整的prompt
-	fullPrompt := fmt.Sprintf("%s\n\n内容：%s\n%s", prompt, fullText, screenshotInfo)
+	fullPrompt := fmt.Sprintf("%s\n\n内容：\n%s", prompt, fullText)
 
 	// 如果没有配置API Key，使用本地模拟
 	if ai.config.APIKey == "" {
-		return ai.localSummarize(fullText, req.Screenshots)
+		return ai.localSummarize(req.Text, req.Screenshots)
 	}
 
 	// 设置默认值
@@ -852,8 +882,69 @@ func (ai *AISummarizer) Summarize(req AIRequest) (AIResponse, error) {
 		ai.config.Model = "mimo-v2-flash"
 	}
 
-	// 调用外部AI API
-	return ai.callExternalAI(fullPrompt, req.Screenshots)
+	// 1. 调用 AI 获取包含标记的 Markdown
+	rawResponse, err := ai.callExternalAI(fullPrompt, nil)
+	if err != nil {
+		return rawResponse, err
+	}
+
+	// 2. 处理截图标记 [[CAPTURE: 123.45]]
+	if req.VideoPath != "" {
+		processedMarkdown, err := ai.processScreenshots(rawResponse.Markdown, req.VideoPath)
+		if err == nil {
+			rawResponse.Markdown = processedMarkdown
+		} else {
+			Warn("处理AI截图失败: %v", err)
+		}
+	}
+
+	return rawResponse, nil
+}
+
+// processScreenshots 解析Markdown中的截图标记并生成图片
+func (ai *AISummarizer) processScreenshots(markdown string, videoPath string) (string, error) {
+	vp, err := NewVideoProcessor(videoPath)
+	if err != nil {
+		return markdown, err
+	}
+
+	// 正则匹配 [[CAPTURE: 123.45]]
+	// 简单起见，我们逐行处理或使用 ReplaceAllStringFunc
+	lines := strings.Split(markdown, "\n")
+	var newLines []string
+
+	for _, line := range lines {
+		if strings.Contains(line, "[[CAPTURE:") {
+			// 提取时间戳
+			start := strings.Index(line, "[[CAPTURE:")
+			end := strings.Index(line[start:], "]]")
+			if end != -1 {
+				tagContent := line[start+10 : start+end]
+				seconds, err := strconv.ParseFloat(strings.TrimSpace(tagContent), 64)
+				if err == nil {
+					// 提取截图
+					imgPath, err := vp.ExtractScreenshotAt(seconds)
+					if err == nil {
+						// 转换路径为 Web 可访问路径
+						// 假设 DOWNLOAD_DIR 是 D:/download
+						// imgPath 是 D:/download/output_xxx/ai_capture_xxx.jpg
+						// Web路径应为 /files/output_xxx/ai_capture_xxx.jpg
+						relPath, _ := filepath.Rel(DOWNLOAD_DIR, imgPath)
+						webPath := "/files/" + filepath.ToSlash(relPath)
+
+						// 替换标记为 Markdown 图片
+						imageMd := fmt.Sprintf("\n![视频截图 %.2fs](%s)\n", seconds, webPath)
+						line = strings.Replace(line, fmt.Sprintf("[[CAPTURE:%s]]", tagContent), imageMd, -1)
+						// 同时也处理带空格的情况
+						line = strings.Replace(line, fmt.Sprintf("[[CAPTURE: %s]]", tagContent), imageMd, -1)
+					}
+				}
+			}
+		}
+		newLines = append(newLines, line)
+	}
+
+	return strings.Join(newLines, "\n"), nil
 }
 
 // localSummarize 本地模拟总结
@@ -1075,11 +1166,18 @@ func (s *HTTPServer) Start() {
 	http.HandleFunc("/api/config", s.handleConfig)
 	http.HandleFunc("/api/health", s.handleHealth)
 
-	// 静态文件服务
+	// 静态文件服务 (前端页面)
 	http.Handle("/", http.FileServer(http.Dir("./static")))
-	Info("HTTP服务启动在端口: http://localhost:%s", s.port)
+
+	// 文件下载服务 (用于展示图片和下载结果)
+	// 映射 /files/ -> D:/download/
+	http.Handle("/files/", http.StripPrefix("/files/", http.FileServer(http.Dir(DOWNLOAD_DIR))))
+
+	Info("HTTP服务启动在端口: %s", s.port)
+	// localhost访问
+	Info("访问地址: http://localhost:%s/", s.port)
 	Info("静态文件目录: ./static")
-	Info("下载目录: %s", DOWNLOAD_DIR)
+	Info("下载目录: %s (映射到 /files/)", DOWNLOAD_DIR)
 
 	err := http.ListenAndServe(":"+s.port, nil)
 	if err != nil {
@@ -1154,6 +1252,11 @@ func (s *HTTPServer) handleProcessVideo(w http.ResponseWriter, r *http.Request) 
 		})
 		return
 	}
+	// 确保处理结束后删除音频文件
+	defer func() {
+		Info("清理临时音频文件: %s", audioPath)
+		os.Remove(audioPath)
+	}()
 
 	// 提取视频时长
 	duration, err := vp.GetVideoDuration()
@@ -1161,14 +1264,12 @@ func (s *HTTPServer) handleProcessVideo(w http.ResponseWriter, r *http.Request) 
 		duration = 0 // 继续处理
 	}
 
-	// 提取截图
-	screenshots, err := vp.ExtractScreenshots(duration)
-	if err != nil {
-		Warn("提取截图失败: %v", err)
-	}
+	// 移除：不再预先提取固定截图，改为由AI按需提取
+	// screenshots, err := vp.ExtractScreenshots(duration)
+	screenshots := []string{}
 
-	// ASR识别
-	asrClient, err := NewBcutASR(audioPath, true)
+	// ASR识别 - 禁用缓存以节省空间
+	asrClient, err := NewBcutASR(audioPath, false)
 	if err != nil {
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(ProcessResponse{
