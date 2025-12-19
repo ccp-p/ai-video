@@ -448,6 +448,141 @@
             box-shadow: 0 4px 12px rgba(0, 0, 0, 0.5);
         }
 
+        /* 右侧 Tab 样式优化 */
+        .right-tabs {
+            display: flex;
+            background: #1e1e1e;
+            padding: 10px 15px 0;
+            border-bottom: 1px solid var(--border-color);
+            gap: 15px;
+        }
+
+        .right-tab {
+            padding: 8px 16px;
+            cursor: pointer;
+            color: var(--text-secondary);
+            border-bottom: 2px solid transparent;
+            font-size: 14px;
+            font-weight: 500;
+            transition: all 0.2s;
+        }
+
+        .right-tab:hover {
+            color: var(--text-primary);
+        }
+
+        .right-tab.active {
+            color: var(--accent-color);
+            border-bottom-color: var(--accent-color);
+        }
+
+        /* 字幕列表样式 (虚拟列表适配) */
+        .subtitle-list-container {
+            flex: 1;
+            overflow-y: auto;
+            padding: 0;
+            position: relative;
+        }
+
+        .subtitle-spacer {
+            width: 100%;
+        }
+
+        .subtitle-item {
+            padding: 12px 15px;
+            border-bottom: 1px solid #2a2a2a;
+            cursor: pointer;
+            transition: all 0.2s;
+            font-size: 13px;
+            color: #aaa;
+            min-height: 60px;
+            /* 固定最小高度以配合虚拟列表计算 */
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+        }
+
+        .subtitle-item:hover {
+            background: #2a2a2a;
+        }
+
+        .subtitle-item.active {
+            background: rgba(187, 134, 252, 0.15);
+            color: #fff;
+            border-left: 4px solid var(--accent-color);
+            font-size: 1.1em;
+            font-weight: 600;
+            padding-left: 18px;
+        }
+
+        .subtitle-time {
+            color: var(--accent-color);
+            font-size: 11px;
+            margin-bottom: 4px;
+            display: block;
+        }
+
+        /* AI总结高亮样式增强 */
+        .active-summary-block {
+            background: rgba(187, 134, 252, 0.15);
+            border-left: 4px solid var(--accent-color);
+            padding: 10px;
+            border-radius: 4px;
+            transition: all 0.3s;
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
+        }
+
+        /* 悬浮视频样式 */
+        .video-container.sticky {
+            position: fixed;
+            bottom: 20px;
+            right: 20px;
+            width: 320px;
+            height: 180px;
+            z-index: 100;
+            box-shadow: 0 5px 20px rgba(0, 0, 0, 0.5);
+            border: 2px solid var(--accent-color);
+            border-radius: 8px;
+            animation: slideIn 0.3s ease;
+        }
+
+        @keyframes slideIn {
+            from {
+                transform: translateY(100%);
+                opacity: 0;
+            }
+
+            to {
+                transform: translateY(0);
+                opacity: 1;
+            }
+        }
+
+        /* 悬浮进度条 */
+        .floating-progress {
+            position: fixed;
+            bottom: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            width: 140px;
+            height: 40px;
+            border-radius: 20px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 14px;
+            color: white;
+            z-index: 1000;
+            background: #1e1e1e;
+            /* 使用 conic-gradient 实现边框进度条效果 */
+            background-image: linear-gradient(#1e1e1e, #1e1e1e),
+                conic-gradient(var(--accent-color) var(--progress-deg), #444 0);
+            background-origin: border-box;
+            background-clip: padding-box, border-box;
+            border: 3px solid transparent;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.5);
+        }
+
         /* 字幕列表样式 */
         .subtitle-list {
             flex: 1;
@@ -687,18 +822,19 @@
                     </div>
                 </div>
 
-                <!-- 实时字幕面板 -->
-                <div class="subtitle-list" ref="subtitleList" v-show="activeRightTab === 'subtitles'">
-                    <div v-if="processResult && processResult.segments">
-                        <div v-for="(seg, idx) in processResult.segments"
-                            :key="idx"
+                <!-- 实时字幕面板 (虚拟列表) -->
+                <div class="subtitle-list-container" ref="subtitleContainer" @scroll="onSubtitleScroll" v-show="activeRightTab === 'subtitles'">
+                    <div v-if="processResult && processResult.segments && processResult.segments.length > 0">
+                        <div class="subtitle-spacer" :style="{ height: subtitlePaddingTop + 'px' }"></div>
+                        <div v-for="(seg, index) in visibleSubtitles"
+                            :key="seg.originalIndex"
                             class="subtitle-item"
-                            :class="{ active: currentSegmentIndex === idx }"
-                            :ref="el => { if (el) subtitleRefs[idx] = el }"
+                            :class="{ active: currentSegmentIndex === seg.originalIndex }"
                             @click="jumpTo(seg.start_time)">
                             <span class="subtitle-time">{{ formatTime(seg.start_time) }}</span>
                             {{ seg.text }}
                         </div>
+                        <div class="subtitle-spacer" :style="{ height: subtitlePaddingBottom + 'px' }"></div>
                     </div>
                     <div v-else style="padding: 20px; text-align: center; color: #666;">
                         暂无字幕数据
@@ -742,6 +878,11 @@
                     activeTab: 'summary',
                     activeRightTab: 'subtitles', // 修改：默认显示字幕Tab
 
+                    // 虚拟列表状态
+                    subtitleScrollTop: 0,
+                    subtitleContainerHeight: 600,
+                    subtitleItemHeight: 60, // 与CSS min-height 保持一致
+
                     // 视频相关
                     currentTime: 0,
                     duration: 0,
@@ -750,8 +891,8 @@
 
                     // 字幕相关
                     currentSegmentIndex: -1,
-                    subtitleRefs: [],
-
+                    // subtitleRefs: [], // 移除
+                    
                     // 聊天相关
                     chatInput: '',
                     chatHistory: [],
@@ -785,8 +926,44 @@
                     if (!relPath.startsWith('/')) relPath = '/' + relPath;
 
                     return '/files' + relPath;
-                }
+                },
 
+                // 虚拟列表计算属性
+                visibleSubtitles() {
+                    if (!this.processResult || !this.processResult.segments) return [];
+                    
+                    const segments = this.processResult.segments;
+                    const total = segments.length;
+                    const buffer = 5;
+                    
+                    const start = Math.floor(this.subtitleScrollTop / this.subtitleItemHeight);
+                    const visibleCount = Math.ceil(this.subtitleContainerHeight / this.subtitleItemHeight);
+                    
+                    let renderStart = Math.max(0, start - buffer);
+                    let renderEnd = Math.min(total, start + visibleCount + buffer);
+                    
+                    return segments.slice(renderStart, renderEnd).map((seg, i) => ({
+                        ...seg,
+                        originalIndex: renderStart + i
+                    }));
+                },
+                subtitlePaddingTop() {
+                    if (!this.processResult || !this.processResult.segments) return 0;
+                    const buffer = 5;
+                    const start = Math.floor(this.subtitleScrollTop / this.subtitleItemHeight);
+                    const renderStart = Math.max(0, start - buffer);
+                    return renderStart * this.subtitleItemHeight;
+                },
+                subtitlePaddingBottom() {
+                    if (!this.processResult || !this.processResult.segments) return 0;
+                    const segments = this.processResult.segments;
+                    const total = segments.length;
+                    const buffer = 5;
+                    const start = Math.floor(this.subtitleScrollTop / this.subtitleItemHeight);
+                    const visibleCount = Math.ceil(this.subtitleContainerHeight / this.subtitleItemHeight);
+                    const renderEnd = Math.min(total, start + visibleCount + buffer);
+                    return Math.max(0, (total - renderEnd) * this.subtitleItemHeight);
+                }
             },
             mounted() {
                 this.loadFiles();
@@ -804,6 +981,19 @@
                 if (this.$refs.videoWrapper) {
                     observer.observe(this.$refs.videoWrapper);
                 }
+
+                // 监听容器高度变化
+                this.$nextTick(() => {
+                    if (this.$refs.subtitleContainer) {
+                        this.subtitleContainerHeight = this.$refs.subtitleContainer.clientHeight || 600;
+                        const ro = new ResizeObserver(entries => {
+                            for (let entry of entries) {
+                                this.subtitleContainerHeight = entry.contentRect.height;
+                            }
+                        });
+                        ro.observe(this.$refs.subtitleContainer);
+                    }
+                });
             },
             beforeUnmount() {
                 if (this.refreshTimer) clearInterval(this.refreshTimer);
@@ -1100,7 +1290,9 @@
 
                 renderChatMarkdown(content) {
                     if (!content) return '';
-                    return marked.parse(content);
+                    // 优化选项显示：强制换行 A. B. C. D.
+                    let formatted = content.replace(/(?:^|\s)([A-D][\.\、])\s/g, '\n\n$1 ');
+                    return marked.parse(formatted);
                 },
 
                 // 视频跳转
@@ -1235,14 +1427,26 @@
                     setTimeout(() => this.message.text = '', 3000);
                 },
 
-                // 滚动到字幕
+                // 虚拟列表滚动监听
+                onSubtitleScroll(e) {
+                    this.subtitleScrollTop = e.target.scrollTop;
+                },
+
+                // 滚动到指定字幕 (虚拟列表适配)
                 scrollToSubtitle(index) {
-                    // 确保在字幕Tab激活时才滚动
-                    if (this.activeRightTab === 'subtitles' && this.subtitleRefs[index]) {
-                        this.subtitleRefs[index].scrollIntoView({
-                            behavior: 'smooth',
-                            block: 'center'
-                        });
+                    if (this.activeRightTab === 'subtitles' && this.$refs.subtitleContainer) {
+                        const container = this.$refs.subtitleContainer;
+                        const targetTop = index * this.subtitleItemHeight;
+                        const height = this.subtitleContainerHeight;
+                        const currentTop = this.subtitleScrollTop;
+
+                        // 只有当目标不在可视区域中间时才滚动
+                        if (targetTop < currentTop || targetTop > currentTop + height - 100) {
+                            container.scrollTo({
+                                top: Math.max(0, targetTop - height / 2 + this.subtitleItemHeight / 2),
+                                behavior: 'smooth'
+                            });
+                        }
                     }
                 },
             },
