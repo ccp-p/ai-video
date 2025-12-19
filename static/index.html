@@ -602,12 +602,8 @@
             <!-- 右侧：AI 导师 & 字幕 -->
             <div class="panel chat-panel">
                 <div class="right-tabs">
-                    <div class="right-tab" :class="{ active: activeRightTab === 'chat' }" @click="activeRightTab = 'chat'">🎓
-                        AI 导师
-                    </div>
-                    <div class="right-tab" :class="{ active: activeRightTab === 'subtitles' }" @click="activeRightTab = 'subtitles'">📝
-                        实时字幕
-                    </div>
+                    <div class="right-tab" :class="{ active: activeRightTab === 'subtitles' }" @click="activeRightTab = 'subtitles'">📝 实时字幕</div>
+                    <div class="right-tab" :class="{ active: activeRightTab === 'chat' }" @click="activeRightTab = 'chat'">🎓 AI 导师</div>
                 </div>
 
                 <!-- AI 导师面板 -->
@@ -682,7 +678,7 @@
                     aiResult: null,
 
                     activeTab: 'summary',
-                    activeRightTab: 'chat', // 新增：右侧Tab状态
+                    activeRightTab: 'subtitles', // 修改：默认显示字幕Tab
 
                     // 视频相关
                     currentTime: 0,
@@ -727,7 +723,8 @@
             mounted() {
                 this.loadFiles();
                 this.loadConfig();
-                this.refreshTimer = setInterval(this.loadFiles, 30000);
+                // 修改：轮询间隔改为 10秒
+                this.refreshTimer = setInterval(this.loadFiles, 10000);
 
                 // 监听滚动实现悬浮视频
                 const observer = new IntersectionObserver(([entry]) => {
@@ -852,17 +849,18 @@
                 },
 
                 async deleteOutput() {
-                    if (!confirm('确定要删除该视频的处理结果吗？(不会删除原视频)')) return;
+                    if(!confirm('确定要删除该视频及处理结果吗？\n\n注意：\n1. 原视频将被删除\n2. 总结和截图将归档到 archive 目录\n3. 其他中间文件将被清理')) return;
                     try {
                         const res = await fetch('/api/delete-output', {
                             method: 'POST',
-                            headers: { 'Content-Type': 'application/json' },
+                            headers: {'Content-Type': 'application/json'},
                             body: JSON.stringify({ video_path: this.videoPath })
                         });
                         if (res.ok) {
                             this.processResult = null;
                             this.aiResult = null;
-                            this.showMessage('已删除处理结果', 'success');
+                            this.showMessage('已删除视频并归档总结', 'success');
+                            this.loadFiles(); // 刷新文件列表
                         }
                     } catch (e) {
                         this.showMessage('删除失败', 'error');

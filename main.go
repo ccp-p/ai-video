@@ -194,13 +194,68 @@ func NewVideoProcessor(videoPath string) (*VideoProcessor, error) {
 	}, nil
 }
 
-// DeleteOutput 删除输出目录
-func (vp *VideoProcessor) DeleteOutput() error {
-	if vp.OutputDir == "" || !strings.Contains(vp.OutputDir, "output_") {
-		return fmt.Errorf("无效的输出目录")
+// ArchiveAndClean 归档并清理 (替代原 DeleteOutput)
+// 1. 删除原视频
+// 2. 清理中间文件(audio, srt, segments)
+// 3. 将 summary.json 和 截图 移动到 archive 目录
+func (vp *VideoProcessor) ArchiveAndClean() error {
+	// 1. 删除原视频
+	if err := os.Remove(vp.VideoPath); err != nil && !os.IsNotExist(err) {
+		Warn("删除视频失败: %v", err)
+	} else {
+		Info("已删除原视频: %s", vp.VideoPath)
 	}
-	Info("删除输出目录: %s", vp.OutputDir)
-	return os.RemoveAll(vp.OutputDir)
+
+	if vp.OutputDir == "" || !strings.Contains(vp.OutputDir, "output_") {
+		return nil
+	}
+
+	// 2. 准备归档目录
+	// 假设 OutputDir 是 D:/download/output_xxx
+	// archiveDir 是 D:/download/archive
+	baseDir := filepath.Dir(vp.OutputDir)
+	archiveRoot := filepath.Join(baseDir, "archive")
+	if err := os.MkdirAll(archiveRoot, 0755); err != nil {
+		return fmt.Errorf("创建归档目录失败: %v", err)
+	}
+
+	// 3. 清理 OutputDir 中的无关文件，保留 summary 和 图片
+	entries, err := os.ReadDir(vp.OutputDir)
+	if err != nil {
+		return err
+	}
+
+	hasContent := false
+	for _, entry := range entries {
+		name := entry.Name()
+		path := filepath.Join(vp.OutputDir, name)
+		ext := strings.ToLower(filepath.Ext(name))
+
+		// 保留 summary.json 和 图片
+		if name == "summary.json" || ext == ".jpg" || ext == ".png" || ext == ".jpeg" {
+			hasContent = true
+			continue
+		}
+		// 删除其他文件 (audio.mp3, segments.json, subtitles.srt 等)
+		os.Remove(path)
+	}
+
+	// 4. 移动文件夹到 archive
+	if hasContent {
+		destPath := filepath.Join(archiveRoot, filepath.Base(vp.OutputDir))
+		os.RemoveAll(destPath) // 如果已存在则覆盖
+		if err := os.Rename(vp.OutputDir, destPath); err != nil {
+			Warn("归档移动失败: %v", err)
+		} else {
+			Info("已归档总结和截图到: %s", destPath)
+		}
+	} else {
+		// 如果没有重要内容，直接删除文件夹
+		os.RemoveAll(vp.OutputDir)
+		Info("输出目录无重要内容，已删除")
+	}
+
+	return nil
 }
 
 // ExtractAudio 从视频提取音频
@@ -928,6 +983,7 @@ func (ai *AISummarizer) Summarize(req AIRequest) (AIResponse, error) {
 	// 1. 调用 AI 获取包含标记的 Markdown
 	rawResponse, err := ai.callExternalAI(fullPrompt, nil)
 	if err != nil {
+		Error("AI总结请求失败: %v", err) // 新增日志
 		return rawResponse, err
 	}
 
@@ -1065,8 +1121,14 @@ func (ai *AISummarizer) Chat(req ChatRequest) (string, error) {
 	// 构建消息列表
 	var messages []map[string]string
 
-	// 系统提示词
-	systemPrompt := "你是一位知识渊博的老师。用户会根据一段视频的内容向你提问。请基于提供的[上下文内容]回答用户的问题。如果上下文中没有答案，请利用你的通用知识回答，但要说明这一点。"
+	// 系统提示词 (更新)
+	systemPrompt := `你是一位专业的AI导师。用户会根据一段视频的内容向你提问。
+请基于提供的[上下文内容]回答用户的问题。
+回答要求：
+1. 像老师一样循循善诱，解答疑惑，语言通俗易懂。
+2. **非常重要**：在回答的最后，请根据上下文内容出3道相关的课后选择题或思考题，帮助用户巩固知识。
+3. 如果上下文中没有答案，请利用你的通用知识回答，并说明这一点。`
+
 	if req.Context != "" {
 		systemPrompt += fmt.Sprintf("\n\n[上下文内容]：\n%s", req.Context)
 	}
@@ -1198,43 +1260,49 @@ func (ai *AISummarizer) callExternalAI(prompt string, screenshots []string) (AIR
 // listDownloadFiles 列出D:/download目录下的文件
 func listDownloadFiles() ([]FileItem, error) {
 	var files []FileItem
+	
+	// 监听列表：主目录 和 dest子目录
+	scanDirs := []string{DOWNLOAD_DIR, filepath.Join(DOWNLOAD_DIR, "dest")}
 
-	// 检查目录是否存在
-	if _, err := os.Stat(DOWNLOAD_DIR); os.IsNotExist(err) {
-		return files, fmt.Errorf("下载目录不存在: %s", DOWNLOAD_DIR)
-	}
-
-	// 读取目录内容
-	entries, err := os.ReadDir(DOWNLOAD_DIR)
-	if err != nil {
-		return files, fmt.Errorf("读取目录失败: %w", err)
-	}
-
-	for _, entry := range entries {
-		if entry.IsDir() {
+	for _, dir := range scanDirs {
+		// 检查目录是否存在
+		if _, err := os.Stat(dir); os.IsNotExist(err) {
 			continue
 		}
 
-		info, err := entry.Info()
+		// 读取目录内容
+		entries, err := os.ReadDir(dir)
 		if err != nil {
+			Warn("读取目录失败 %s: %v", dir, err)
 			continue
 		}
 
-		fileType := "other"
-		ext := strings.ToLower(filepath.Ext(entry.Name()))
-		if ext == ".mp4" || ext == ".avi" || ext == ".mkv" || ext == ".mov" || ext == ".flv" {
-			fileType = "video"
-		} else if ext == ".mp3" || ext == ".wav" || ext == ".flac" || ext == ".aac" {
-			fileType = "audio"
-		}
+		for _, entry := range entries {
+			if entry.IsDir() {
+				continue
+			}
 
-		files = append(files, FileItem{
-			Name:    entry.Name(),
-			Path:    filepath.Join(DOWNLOAD_DIR, entry.Name()),
-			Size:    info.Size(),
-			ModTime: info.ModTime().Format("2006-01-02 15:04:05"),
-			Type:    fileType,
-		})
+			info, err := entry.Info()
+			if err != nil {
+				continue
+			}
+
+			fileType := "other"
+			ext := strings.ToLower(filepath.Ext(entry.Name()))
+			if ext == ".mp4" || ext == ".avi" || ext == ".mkv" || ext == ".mov" || ext == ".flv" {
+				fileType = "video"
+			} else if ext == ".mp3" || ext == ".wav" || ext == ".flac" || ext == ".aac" {
+				fileType = "audio"
+			}
+
+			files = append(files, FileItem{
+				Name:    entry.Name(),
+				Path:    filepath.Join(dir, entry.Name()), // 使用完整路径
+				Size:    info.Size(),
+				ModTime: info.ModTime().Format("2006-01-02 15:04:05"),
+				Type:    fileType,
+			})
+		}
 	}
 
 	return files, nil
@@ -1474,8 +1542,9 @@ func (s *HTTPServer) handleDeleteOutput(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	if err := vp.DeleteOutput(); err != nil {
-		http.Error(w, "删除失败: "+err.Error(), http.StatusInternalServerError)
+	// 调用新的归档并清理方法
+	if err := vp.ArchiveAndClean(); err != nil {
+		http.Error(w, "删除/归档失败: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
 
