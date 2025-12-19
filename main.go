@@ -1127,7 +1127,16 @@ func (ai *AISummarizer) Chat(req ChatRequest) (string, error) {
 回答要求：
 1. 像老师一样循循善诱，解答疑惑，语言通俗易懂。
 2. **非常重要**：在回答的最后，请根据上下文内容出3道相关的课后选择题或思考题，帮助用户巩固知识。
-3. 如果上下文中没有答案，请利用你的通用知识回答，并说明这一点。`
+3. **题目格式要求**：
+   - 如果是选择题，请在题目上方标注 [TYPE: MULTIPLE_CHOICE]。
+   - 题目和选项之间要换行。
+   - 选项使用 A. B. C. D. 开头。
+   - 例如：
+     [TYPE: MULTIPLE_CHOICE]
+     1. 这是一个问题？
+     A. 选项一
+     B. 选项二
+4. 如果上下文中没有答案，请利用你的通用知识回答，并说明这一点。`
 
 	if req.Context != "" {
 		systemPrompt += fmt.Sprintf("\n\n[上下文内容]：\n%s", req.Context)

@@ -686,6 +686,51 @@
             background: var(--accent-color);
             color: #000;
         }
+
+        /* 隐藏截图模式 */
+        .hide-screenshots img {
+            display: none !important;
+        }
+        
+        /* 测验题样式 */
+        .quiz-container {
+            margin-top: 10px;
+            background: rgba(0, 0, 0, 0.2);
+            padding: 10px;
+            border-radius: 8px;
+            border: 1px solid #333;
+        }
+        .quiz-title {
+            font-size: 12px;
+            color: var(--accent-color);
+            margin-bottom: 8px;
+            font-weight: bold;
+            display: flex;
+            align-items: center;
+            gap: 5px;
+        }
+        .quiz-options {
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
+        }
+        .quiz-option-btn {
+            text-align: left;
+            background: #2d2d2d;
+            border: 1px solid var(--border-color);
+            color: var(--text-secondary);
+            padding: 8px 12px;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 13px;
+            transition: all 0.2s;
+            line-height: 1.4;
+        }
+        .quiz-option-btn:hover {
+            background: var(--accent-color);
+            color: #000;
+            border-color: var(--accent-color);
+        }
     </style>
 </head>
 
@@ -749,7 +794,12 @@
                             <label>API Key</label>
                             <input type="text" v-model="config.api_key" placeholder="API Key">
                         </div>
-                        <button class="btn" style="background:#333;color:#ccc" @click="saveConfig">保存配置</button>
+                        <!-- 新增：隐藏截图选项 -->
+                        <div class="form-group" style="display:flex; align-items:center; gap:8px; margin-top:15px;">
+                            <input type="checkbox" id="hideScreenshots" v-model="config.hideScreenshots" style="width:auto;">
+                            <label for="hideScreenshots" style="margin:0; cursor:pointer;">隐藏AI总结中的视频截图</label>
+                        </div>
+                        <button class="btn" style="background:#333;color:#ccc;margin-top:10px;" @click="saveConfig">保存配置</button>
                     </div>
                 </div>
             </div>
@@ -780,7 +830,10 @@
                         <!-- 总结内容 -->
                         <div v-show="activeTab === 'summary'">
                             <!-- 使用 renderSummaryMarkdown 处理高亮 -->
-                            <div v-if="aiResult" class="markdown-content" @click="handleMarkdownClick"
+                            <!-- 添加 hide-screenshots 类 -->
+                            <div v-if="aiResult" class="markdown-content" 
+                                :class="{ 'hide-screenshots': config.hideScreenshots }"
+                                @click="handleMarkdownClick"
                                 v-html="renderSummaryMarkdown(aiResult.markdown)"></div>
                             <div v-else style="text-align:center; padding: 40px; color: #666;">
                                 👈 请先在左侧选择视频并开始处理
@@ -804,12 +857,21 @@
                             你好！我是你的AI视频导师。处理完视频后，你可以问我任何关于视频内容的问题。
                         </div>
                         <div v-for="(msg, idx) in chatHistory" :key="idx">
-                            <div class="message" :class="msg.role" v-html="renderChatMarkdown(msg.content)"></div>
-                            <!-- 如果是最后一条助手消息，且包含选项，显示快速回复 -->
-                            <div v-if="idx === chatHistory.length - 1 && msg.role === 'assistant' && detectOptions(msg.content).length > 0" class="quick-replies" style="margin-left: 10px;">
-                                <button v-for="opt in detectOptions(msg.content)" :key="opt" class="quick-reply-btn" @click="sendQuickReply(opt)">
-                                    我选 {{ opt }}
-                                </button>
+                            <div class="message" :class="msg.role">
+                                <div v-html="renderChatMarkdown(msg.content)"></div>
+                                <!-- 渲染题目选项 (如果检测到题目类型) -->
+                                <div v-if="msg.role === 'assistant' && parseQuizzes(msg.content).length > 0">
+                                    <div v-for="(quiz, qIdx) in parseQuizzes(msg.content)" :key="qIdx" class="quiz-container">
+                                        <div class="quiz-title">📝 互动答题 {{ qIdx + 1 }}</div>
+                                        <div class="quiz-options">
+                                            <button v-for="opt in quiz.options" :key="opt" 
+                                                class="quiz-option-btn" 
+                                                @click="sendQuickReply(opt)">
+                                                {{ opt }}
+                                            </button>
+                                        </div>
+                                    </div>
+                                </div>
                             </div>
                         </div>
                         <div v-if="chatLoading" class="message assistant">
@@ -818,7 +880,12 @@
                     </div>
                     <div class="chat-input-area">
                         <textarea v-model="chatInput" @keydown.enter.prevent="sendChat" placeholder="输入问题，按回车发送..."></textarea>
-                        <button class="btn btn-primary" @click="sendChat" :disabled="chatLoading || !chatInput">发送</button>
+                        <div style="display:flex; justify-content:space-between; align-items:center; margin-top:10px;">
+                            <div class="quick-replies" style="margin:0;">
+                                <button class="quick-reply-btn" @click="askForQuiz">📝 考考我</button>
+                            </div>
+                            <button class="btn btn-primary" style="width:auto; padding: 5px 20px;" @click="sendChat" :disabled="chatLoading || !chatInput">发送</button>
+                        </div>
                     </div>
                 </div>
 
@@ -869,7 +936,13 @@
                     processStep: 'idle', // idle, extracting, summarizing
                     progress: 0,
 
-                    config: { api_key: '', api_url: '', model: '', custom_prompt: '' },
+                    config: { 
+                        api_key: '', 
+                        api_url: '', 
+                        model: '', 
+                        custom_prompt: '',
+                        hideScreenshots: false // 新增
+                    },
                     configStatus: '',
 
                     processResult: null,
@@ -1225,6 +1298,44 @@
                 },
 
                 // 聊天功能
+                askForQuiz() {
+                    this.chatInput = "请根据视频内容出3道选择题考考我";
+                    this.sendChat();
+                },
+
+                // 解析题目
+                parseQuizzes(content) {
+                    if (!content) return [];
+                    const quizzes = [];
+                    // 策略：将文本按 [TYPE: MULTIPLE_CHOICE] 分割
+                    const parts = content.split('[TYPE: MULTIPLE_CHOICE]');
+                    if (parts.length < 2) return []; // 没有题目
+
+                    // 跳过第一部分（通常是前言）
+                    for (let i = 1; i < parts.length; i++) {
+                        const part = parts[i];
+                        // 提取选项 A. xxx B. xxx
+                        const options = [];
+                        // 匹配行首或空白后的 A. 或 A、
+                        const regex = /(?:^|\n|\s)([A-D][\.\、]\s.*?)(\n|$)/g;
+                        let match;
+                        while ((match = regex.exec(part)) !== null) {
+                            const optText = match[1].trim();
+                            if (!options.includes(optText)) {
+                                options.push(optText);
+                            }
+                        }
+                        
+                        if (options.length > 0) {
+                            quizzes.push({
+                                id: i,
+                                options: options
+                            });
+                        }
+                    }
+                    return quizzes;
+                },
+
                 async sendChat() {
                     if (!this.chatInput || !this.processResult) return;
 
@@ -1408,11 +1519,19 @@
                     const res = await fetch('/api/config');
                     const data = await res.json();
                     if (data.success) {
-                        this.config = data.config;
+                        this.config = { ...this.config, ...data.config }; // 合并
+                        // 从 localStorage 加载前端特有配置
+                        const localHide = localStorage.getItem('hideScreenshots');
+                        if (localHide !== null) {
+                            this.config.hideScreenshots = localHide === 'true';
+                        }
                         this.configStatus = this.config.api_key ? 'API已配置' : '使用本地模式';
                     }
                 },
                 async saveConfig() {
+                    // 保存前端配置
+                    localStorage.setItem('hideScreenshots', this.config.hideScreenshots);
+                    
                     await fetch('/api/config', {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
@@ -1438,15 +1557,12 @@
                         const container = this.$refs.subtitleContainer;
                         const targetTop = index * this.subtitleItemHeight;
                         const height = this.subtitleContainerHeight;
-                        const currentTop = this.subtitleScrollTop;
-
-                        // 只有当目标不在可视区域中间时才滚动
-                        if (targetTop < currentTop || targetTop > currentTop + height - 100) {
-                            container.scrollTo({
-                                top: Math.max(0, targetTop - height / 2 + this.subtitleItemHeight / 2),
-                                behavior: 'smooth'
-                            });
-                        }
+                        
+                        // 始终尝试将当前项滚动到中间，提供更好的阅读体验
+                        container.scrollTo({
+                            top: Math.max(0, targetTop - height / 2 + this.subtitleItemHeight / 2),
+                            behavior: 'smooth'
+                        });
                     }
                 },
             },
