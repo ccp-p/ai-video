@@ -718,10 +718,23 @@
                 <div class="panel-body">
                     <!-- 文件列表 -->
                     <div class="control-section">
-                        <h3>📁 视频文件 ({{ fileList.length }}) <span style="float:right; font-size:10px; cursor:pointer"
+                        <h3>📁 视频文件 ({{ activeFiles.length }}) <span style="float:right; font-size:10px; cursor:pointer"
                                 @click="loadFiles">🔄</span></h3>
                         <div class="file-list">
-                            <div class="file-item" v-for="file in fileList"
+                            <div class="file-item" v-for="file in activeFiles"
+                                :class="{ selected: selectedFile === file.path }" @click="selectFile(file)">
+                                <span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{{ file.name
+                                    }}</span>
+                            </div>
+                            <div v-if="activeFiles.length === 0" style="padding:10px;color:#666;text-align:center;font-size:12px">暂无视频文件</div>
+                        </div>
+                    </div>
+
+                    <!-- 归档列表 (新增) -->
+                    <div class="control-section" v-if="archiveFiles.length > 0">
+                        <h3>📦 归档历史 ({{ archiveFiles.length }})</h3>
+                        <div class="file-list" style="max-height: 150px;">
+                            <div class="file-item" v-for="file in archiveFiles"
                                 :class="{ selected: selectedFile === file.path }" @click="selectFile(file)">
                                 <span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{{ file.name
                                     }}</span>
@@ -947,6 +960,9 @@
                     processingFile: '' ,// 当前正在后台处理的文件路径
 
                     progressDeg: 0, // 进度条角度
+
+                    // 新增：用于首次加载回显
+                    isFirstLoad: true,
                 };
             },
             computed: {
@@ -1004,7 +1020,15 @@
                     const visibleCount = Math.ceil(this.subtitleContainerHeight / this.subtitleItemHeight);
                     const renderEnd = Math.min(total, start + visibleCount + buffer);
                     return Math.max(0, (total - renderEnd) * this.subtitleItemHeight);
-                }
+                },
+
+                // 新增：文件列表分类
+                activeFiles() {
+                    return this.fileList.filter(f => f.type !== 'archive');
+                },
+                archiveFiles() {
+                    return this.fileList.filter(f => f.type === 'archive');
+                },
             },
             mounted() {
                 this.loadFiles();
@@ -1045,6 +1069,15 @@
                     const secs = Math.floor(seconds % 60);
                     return `${String(mins).padStart(2, '0')}:${String(secs).padStart(2, '0')}`;
                 },
+                // 新增：友好的时间格式化 (用于总结展示)
+                formatTimeFriendly(seconds) {
+                    if (seconds < 60) {
+                        return `${Math.floor(seconds)}s`;
+                    }
+                    const mins = Math.floor(seconds / 60);
+                    const secs = Math.floor(seconds % 60);
+                    return `${mins}m${secs}s`;
+                },
                 async loadFiles() {
                     try {
                         const res = await fetch('/api/list-files');
@@ -1052,12 +1085,25 @@
                         if (data.success) {
                             this.fileList = data.files;
                             this.downloadDir = data.dir.replace(/\\/g, '/'); // 统一斜杠
+
+                            // 新增：首次加载自动回显上次选中的文件
+                            if (this.isFirstLoad && this.fileList.length > 0) {
+                                this.isFirstLoad = false;
+                                const lastPath = localStorage.getItem('last_selected_file');
+                                if (lastPath) {
+                                    const file = this.fileList.find(f => f.path === lastPath);
+                                    if (file) {
+                                        this.selectFile(file);
+                                    }
+                                }
+                            }
                         }
                     } catch (e) { console.error(e); }
                 },
 
                 selectFile(file) {
                     this.selectedFile = file.path;
+                    localStorage.setItem('last_selected_file', file.path); // 新增：保存选中状态
                     this.videoPath = file.path;
                     this.fileType = file.type;
                     
@@ -1407,9 +1453,12 @@
                 renderSummaryMarkdown(md) {
                     if (!md) return '';
                     // 1. 替换 [[TIME: 123]] 为 HTML 标记
-                    // 使用 span 包装，方便后续查找父元素高亮
-                    let processed = md.replace(/\[\[TIME:\s*(\d+(\.\d+)?)\]\]/g, 
-                        '<span class="time-marker" data-time="$1">⏱ $1s</span>');
+                    // 修改：使用 formatTimeFriendly 格式化时间显示
+                    let processed = md.replace(/\[\[TIME:\s*(\d+(\.\d+)?)\]\]/g, (match, p1) => {
+                        const seconds = parseFloat(p1);
+                        const timeStr = this.formatTimeFriendly(seconds);
+                        return `<span class="time-marker" data-time="${p1}">⏱ ${timeStr}</span>`;
+                    });
                     
                     return marked.parse(processed);
                 },
