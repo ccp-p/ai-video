@@ -531,24 +531,25 @@
                     <div class="control-section">
                         <h3>⚡ 操作</h3>
                         <div style="display: flex; gap: 10px; flex-wrap: wrap;">
-                            <button class="btn btn-primary" @click="processVideo" :disabled="processing || !videoPath">
+                            <button class="btn btn-primary" @click="processVideo" :disabled="processing || !videoPath || fileType === 'archive'">
                                 {{ getProcessButtonText() }}
                             </button>
-
+                            
                             <!-- 独立总结按钮 -->
-                            <button class="btn" style="background: #2c3e50; color: white; flex: 1;"
-                                    @click="retrySummarize"
-                                    v-if="processResult && processResult.success && !processing">
+                            <button class="btn" style="background: #2c3e50; color: white; flex: 1;" 
+                                    @click="retrySummarize" 
+                                    v-if="processResult && processResult.success && !processing && fileType !== 'archive'">
                                 🔄 仅重试 AI总结
                             </button>
                         </div>
 
-                        <div class="progress-bar" v-if="processing">
+                        <div class="progress-bar" v-if="processing && processingFile === videoPath">
                             <div class="progress-fill" :style="{ width: progress + '%' }"></div>
                         </div>
-
-                        <button class="btn btn-danger" @click="deleteOutput" v-if="processResult && processResult.success">
-                            🗑️ 删除处理结果
+                        
+                        <!-- 删除按钮常驻 -->
+                        <button class="btn btn-danger" @click="deleteOutput" :disabled="!videoPath || fileType === 'archive'">
+                            {{ (processResult && processResult.success) ? '📦 归档总结 & 删除视频' : '🗑️ 删除视频' }}
                         </button>
                     </div>
 
@@ -696,7 +697,11 @@
                     chatLoading: false,
 
                     message: { text: '', type: '' },
-                    refreshTimer: null
+                    refreshTimer: null,
+
+                    // 新增：文件类型标识
+                    fileType: 'video', // video, audio, archive
+                    processingFile: '' // 当前正在后台处理的文件路径
                 };
             },
             computed: {
@@ -755,9 +760,62 @@
                 selectFile(file) {
                     this.selectedFile = file.path;
                     this.videoPath = file.path;
+                    this.fileType = file.type;
+                    
+                    // 清空当前视图
                     this.processResult = null;
                     this.aiResult = null;
-                    this.chatHistory = []; // 切换视频清空聊天
+                    this.chatHistory = [];
+                    this.activeTab = 'summary';
+
+                    if (file.type === 'archive') {
+                        this.loadArchive(file.path);
+                    } else {
+                        // 自动回显：检查是否有缓存
+                        this.checkVideoStatus(file.path);
+                    }
+                },
+
+                async checkVideoStatus(path) {
+                    try {
+                        const res = await fetch('/api/process-video', {
+                            method: 'POST',
+                            headers: {'Content-Type': 'application/json'},
+                            body: JSON.stringify({ video_path: path, check_only: true })
+                        });
+                        const data = await res.json();
+                        if (data.success) {
+                            // 如果用户还停留在该文件，则更新UI
+                            if (this.videoPath === path) {
+                                this.processResult = data;
+                                if (data.ai_result) {
+                                    this.aiResult = data.ai_result;
+                                }
+                                this.showMessage('已自动加载历史记录', 'success');
+                            }
+                        }
+                    } catch (e) {
+                        console.log('Check status failed', e);
+                    }
+                },
+
+                async loadArchive(path) {
+                    try {
+                        const res = await fetch('/api/get-archive', {
+                            method: 'POST',
+                            headers: {'Content-Type': 'application/json'},
+                            body: JSON.stringify({ path: path })
+                        });
+                        if (res.ok) {
+                            const data = await res.json();
+                            this.aiResult = data;
+                            this.showMessage('已加载归档内容', 'success');
+                        } else {
+                            this.showMessage('加载归档失败', 'error');
+                        }
+                    } catch (e) {
+                        this.showMessage('加载归档出错: ' + e.message, 'error');
+                    }
                 },
 
                 getProcessButtonText() {
@@ -770,82 +828,103 @@
                 },
 
                 async processVideo() {
+                    const currentFile = this.videoPath;
                     this.processing = true;
+                    this.processingFile = currentFile; // 标记正在处理的文件
                     this.processStep = 'extracting';
                     this.progress = 0;
                     this.showMessage('开始分离音频与识别...', 'info');
-
-                    // 模拟进度
-                    const timer = setInterval(() => { if (this.progress < 90) this.progress += 5; }, 1000);
+                    
+                    const timer = setInterval(() => { if(this.progress < 90) this.progress += 5; }, 1000);
 
                     try {
                         const res = await fetch('/api/process-video', {
                             method: 'POST',
-                            headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify({ video_path: this.videoPath })
+                            headers: {'Content-Type': 'application/json'},
+                            body: JSON.stringify({ video_path: currentFile })
                         });
                         const data = await res.json();
-
+                        
                         clearInterval(timer);
-                        this.progress = 100;
-
+                        
                         if (data.success) {
-                            this.processResult = data;
-                            this.showMessage('识别完成，准备生成总结...', 'success');
-
+                            // 只有当用户仍在该文件页面时才更新UI
+                            if (this.videoPath === currentFile) {
+                                this.progress = 100;
+                                this.processResult = data;
+                                this.showMessage('识别完成，准备生成总结...', 'success');
+                            }
+                            
                             // 检查是否有缓存的AI结果
                             if (data.ai_result) {
-                                this.aiResult = data.ai_result;
-                                this.showMessage('已加载缓存的AI总结', 'success');
+                                if (this.videoPath === currentFile) {
+                                    this.aiResult = data.ai_result;
+                                    this.showMessage('已加载缓存的AI总结', 'success');
+                                }
                             } else {
                                 // 没有缓存，自动触发总结
-                                await this.aiSummarize();
+                                await this.aiSummarize(currentFile, data);
                             }
                         } else {
                             this.showMessage('识别失败: ' + data.message, 'error');
+                            if (this.videoPath === currentFile) alert('识别失败: ' + data.message);
                         }
                     } catch (e) {
                         this.showMessage('请求错误: ' + e.message, 'error');
                     } finally {
-                        this.processing = false;
-                        this.processStep = 'idle';
+                        if (this.processingFile === currentFile) {
+                            this.processing = false;
+                            this.processStep = 'idle';
+                            this.processingFile = '';
+                        }
                     }
                 },
 
-                async retrySummarize() {
-                    if (!this.processResult) return;
-                    this.processing = true;
-                    await this.aiSummarize();
-                    this.processing = false;
-                },
+                async aiSummarize(targetFile = null, processData = null) {
+                    // 如果是自动调用，使用传入的参数；如果是手动重试，使用当前状态
+                    const fileToProcess = targetFile || this.videoPath;
+                    const dataToUse = processData || this.processResult;
 
-                async aiSummarize() {
+                    if (!dataToUse) return;
+
                     this.processStep = 'summarizing';
-                    this.showMessage('正在生成AI总结...', 'info');
+                    if (this.videoPath === fileToProcess) this.showMessage('正在生成AI总结...', 'info');
+                    
                     try {
-                        const text = this.processResult.segments.map(s => s.text).join(' ');
+                        const text = dataToUse.segments.map(s => s.text).join(' ');
                         const res = await fetch('/api/ai-summarize', {
                             method: 'POST',
-                            headers: { 'Content-Type': 'application/json' },
+                            headers: {'Content-Type': 'application/json'},
                             body: JSON.stringify({
                                 text: text,
-                                segments: this.processResult.segments,
-                                video_path: this.videoPath,
+                                segments: dataToUse.segments,
+                                video_path: fileToProcess,
                                 prompt: this.config.custom_prompt
                             })
                         });
                         const data = await res.json();
                         if (data.success) {
-                            this.aiResult = data;
-                            this.activeTab = 'summary';
-                            this.showMessage('AI总结完成', 'success');
+                            if (this.videoPath === fileToProcess) {
+                                this.aiResult = data;
+                                this.activeTab = 'summary';
+                                this.showMessage('AI总结完成', 'success');
+                            }
                         } else {
                             throw new Error(data.message || '总结失败');
                         }
                     } catch (e) {
-                        this.showMessage('总结失败: ' + e.message, 'error');
-                        console.log('AI总结失败: ' + e.message + '\n请检查API配置或网络，然后点击“仅重试 AI总结”按钮。');
+                        if (this.videoPath === fileToProcess) {
+                            this.showMessage('总结失败: ' + e.message, 'error');
+                            alert('AI总结失败: ' + e.message);
+                        }
                     }
+                },
+
+                async retrySummarize() {
+                    this.processing = true;
+                    await this.aiSummarize();
+                    this.processing = false;
+                    this.processStep = 'idle';
                 },
 
                 async deleteOutput() {
@@ -934,7 +1013,14 @@
                     }
                 },
 
+                // 修改 renderMarkdown 以支持归档图片的路径
                 renderMarkdown(md) {
+                    if (!md) return '';
+                    // 如果是归档文件，图片路径可能需要调整？
+                    // 目前归档只是移动了文件夹，Web路径 /files/archive/output_xxx/img.jpg 应该能访问
+                    // 因为 /files/ 映射到 D:/download/
+                    // 归档在 D:/download/archive/
+                    // 所以 /files/archive/... 是有效的
                     return marked.parse(md);
                 },
 

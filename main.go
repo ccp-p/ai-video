@@ -107,6 +107,7 @@ type FileItem struct {
 // ProcessRequest 处理请求
 type ProcessRequest struct {
 	VideoPath string `json:"video_path"`
+	CheckOnly bool   `json:"check_only"` // 新增：仅检查状态
 }
 
 // ProcessResponse 处理响应
@@ -1295,6 +1296,11 @@ func listDownloadFiles() ([]FileItem, error) {
 				fileType = "audio"
 			}
 
+			// 过滤掉非视频音频文件
+			if fileType == "other" {
+				continue
+			}
+
 			files = append(files, FileItem{
 				Name:    entry.Name(),
 				Path:    filepath.Join(dir, entry.Name()), // 使用完整路径
@@ -1302,6 +1308,32 @@ func listDownloadFiles() ([]FileItem, error) {
 				ModTime: info.ModTime().Format("2006-01-02 15:04:05"),
 				Type:    fileType,
 			})
+		}
+	}
+
+	// 扫描归档目录
+	archiveDir := filepath.Join(DOWNLOAD_DIR, "archive")
+	if entries, err := os.ReadDir(archiveDir); err == nil {
+		for _, entry := range entries {
+			if entry.IsDir() {
+				// 检查是否存在 summary.json
+				summaryPath := filepath.Join(archiveDir, entry.Name(), "summary.json")
+				if _, err := os.Stat(summaryPath); err == nil {
+					// 这是一个有效的归档
+					name := entry.Name()
+					// 去除 output_ 前缀，让名字更好看
+					if strings.HasPrefix(name, "output_") {
+						name = name[7:]
+					}
+					
+					files = append(files, FileItem{
+						Name:    "📦 [归档] " + name,
+						Path:    filepath.Join(archiveDir, entry.Name()),
+						Type:    "archive",
+						ModTime: "已归档",
+					})
+				}
+			}
 		}
 	}
 
@@ -1333,9 +1365,10 @@ func (s *HTTPServer) Start() {
 	// API路由
 	http.HandleFunc("/api/list-files", s.handleListFiles)
 	http.HandleFunc("/api/process-video", s.handleProcessVideo)
-	http.HandleFunc("/api/delete-output", s.handleDeleteOutput) // 新增删除接口
+	http.HandleFunc("/api/delete-output", s.handleDeleteOutput)
+	http.HandleFunc("/api/get-archive", s.handleGetArchive) // 新增：获取归档内容
 	http.HandleFunc("/api/ai-summarize", s.handleAISummarize)
-	http.HandleFunc("/api/ai-chat", s.handleAIChat) // 新增对话接口
+	http.HandleFunc("/api/ai-chat", s.handleAIChat)
 	http.HandleFunc("/api/config", s.handleConfig)
 	http.HandleFunc("/api/health", s.handleHealth)
 
@@ -1383,6 +1416,32 @@ func (s *HTTPServer) handleListFiles(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// handleGetArchive 获取归档内容
+func (s *HTTPServer) handleGetArchive(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "只支持POST方法", http.StatusMethodNotAllowed)
+		return
+	}
+
+	var req struct {
+		Path string `json:"path"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "解析请求失败", http.StatusBadRequest)
+		return
+	}
+
+	summaryPath := filepath.Join(req.Path, "summary.json")
+	data, err := os.ReadFile(summaryPath)
+	if err != nil {
+		http.Error(w, "读取归档失败: "+err.Error(), http.StatusNotFound)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.Write(data)
+}
+
 // handleProcessVideo 处理视频：提取音频 + ASR + SRT + 截图
 func (s *HTTPServer) handleProcessVideo(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
@@ -1404,7 +1463,11 @@ func (s *HTTPServer) handleProcessVideo(w http.ResponseWriter, r *http.Request) 
 
 	// 检查文件是否存在
 	if _, err := os.Stat(req.VideoPath); os.IsNotExist(err) {
-		http.Error(w, "视频文件不存在: "+req.VideoPath, http.StatusBadRequest)
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(ProcessResponse{
+			Success: false,
+			Message: "视频文件不存在",
+		})
 		return
 	}
 
@@ -1439,6 +1502,31 @@ func (s *HTTPServer) handleProcessVideo(w http.ResponseWriter, r *http.Request) 
 		}
 	}
 	// === 缓存检查结束 ===
+
+	// 如果是仅检查模式
+	if req.CheckOnly {
+		if segmentsLoaded {
+			// 返回缓存数据
+			result := ProcessResponse{
+				Success:      true,
+				Segments:     segments,
+				OutputDir:    vp.OutputDir,
+				SegmentCount: len(segments),
+				AIResult:     aiResult,
+			}
+			w.Header().Set("Content-Type", "application/json")
+			json.NewEncoder(w).Encode(result)
+			return
+		} else {
+			// 未处理
+			w.Header().Set("Content-Type", "application/json")
+			json.NewEncoder(w).Encode(ProcessResponse{
+				Success: false,
+				Message: "未处理",
+			})
+			return
+		}
+	}
 
 	var audioPath string
 	var duration float64
