@@ -429,40 +429,23 @@
             bottom: 20px;
             left: 50%;
             transform: translateX(-50%);
-            background: rgba(0, 0, 0, 0.7);
-            padding: 8px 16px;
+            width: 140px;
+            height: 40px;
             border-radius: 20px;
-            color: white;
-            font-size: 14px;
-            z-index: 1000;
-            backdrop-filter: blur(5px);
-            border: 1px solid rgba(255, 255, 255, 0.1);
             display: flex;
             align-items: center;
-            gap: 10px;
-        }
-
-        /* 右侧 Tab 样式 */
-        .right-tabs {
-            display: flex;
-            border-bottom: 1px solid var(--border-color);
-            background: #252525;
-        }
-
-        .right-tab {
-            flex: 1;
-            padding: 12px;
-            text-align: center;
-            cursor: pointer;
-            color: var(--text-secondary);
-            font-size: 13px;
-            font-weight: 600;
-        }
-
-        .right-tab.active {
-            color: var(--accent-color);
-            border-bottom: 2px solid var(--accent-color);
-            background: var(--panel-bg);
+            justify-content: center;
+            font-size: 14px;
+            color: white;
+            z-index: 1000;
+            background: #1e1e1e;
+            /* 使用 conic-gradient 实现边框进度条效果 */
+            background-image: linear-gradient(#1e1e1e, #1e1e1e),
+                conic-gradient(var(--accent-color) var(--progress-deg), #444 0);
+            background-origin: border-box;
+            background-clip: padding-box, border-box;
+            border: 3px solid transparent;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.5);
         }
 
         /* 字幕列表样式 */
@@ -487,8 +470,14 @@
 
         .subtitle-item.active {
             background: rgba(187, 134, 252, 0.15);
-            color: var(--text-primary);
-            border-left: 3px solid var(--accent-color);
+            color: #fff;
+            /* 更亮的白色 */
+            border-left: 4px solid var(--accent-color);
+            font-size: 1.2em;
+            /* 字号加大 */
+            font-weight: 600;
+            padding-left: 18px;
+            /* 补偿border宽度 */
         }
 
         .subtitle-time {
@@ -496,6 +485,71 @@
             font-size: 11px;
             margin-bottom: 4px;
             display: block;
+        }
+
+        /* AI总结高亮样式 */
+        .active-summary-block {
+            background: rgba(187, 134, 252, 0.08);
+            border-left: 4px solid var(--accent-color);
+            padding-left: 10px;
+            border-radius: 0 4px 4px 0;
+            transition: all 0.3s;
+        }
+
+        .time-marker {
+            color: var(--accent-color);
+            font-size: 0.85em;
+            font-family: monospace;
+            cursor: pointer;
+            margin-right: 5px;
+            user-select: none;
+        }
+
+        .time-marker:hover {
+            text-decoration: underline;
+        }
+
+        /* 聊天消息 Markdown 样式修正 */
+        .message p {
+            margin-bottom: 8px;
+        }
+
+        .message ul,
+        .message ol {
+            margin-left: 20px;
+            margin-bottom: 8px;
+        }
+
+        .message pre {
+            background: #111;
+            padding: 10px;
+            border-radius: 4px;
+            overflow-x: auto;
+            margin: 5px 0;
+        }
+
+        /* 快速回复按钮 */
+        .quick-replies {
+            display: flex;
+            gap: 10px;
+            margin-top: 10px;
+            flex-wrap: wrap;
+        }
+
+        .quick-reply-btn {
+            background: #333;
+            border: 1px solid var(--border-color);
+            color: var(--text-primary);
+            padding: 5px 15px;
+            border-radius: 15px;
+            cursor: pointer;
+            font-size: 12px;
+            transition: all 0.2s;
+        }
+
+        .quick-reply-btn:hover {
+            background: var(--accent-color);
+            color: #000;
         }
     </style>
 </head>
@@ -590,8 +644,9 @@
 
                         <!-- 总结内容 -->
                         <div v-show="activeTab === 'summary'">
+                            <!-- 使用 renderSummaryMarkdown 处理高亮 -->
                             <div v-if="aiResult" class="markdown-content" @click="handleMarkdownClick"
-                                v-html="renderMarkdown(aiResult.markdown)"></div>
+                                v-html="renderSummaryMarkdown(aiResult.markdown)"></div>
                             <div v-else style="text-align:center; padding: 40px; color: #666;">
                                 👈 请先在左侧选择视频并开始处理
                             </div>
@@ -613,8 +668,14 @@
                         <div class="message assistant">
                             你好！我是你的AI视频导师。处理完视频后，你可以问我任何关于视频内容的问题。
                         </div>
-                        <div v-for="(msg, idx) in chatHistory" :key="idx" class="message" :class="msg.role">
-                            {{ msg.content }}
+                        <div v-for="(msg, idx) in chatHistory" :key="idx">
+                            <div class="message" :class="msg.role" v-html="renderChatMarkdown(msg.content)"></div>
+                            <!-- 如果是最后一条助手消息，且包含选项，显示快速回复 -->
+                            <div v-if="idx === chatHistory.length - 1 && msg.role === 'assistant' && detectOptions(msg.content).length > 0" class="quick-replies" style="margin-left: 10px;">
+                                <button v-for="opt in detectOptions(msg.content)" :key="opt" class="quick-reply-btn" @click="sendQuickReply(opt)">
+                                    我选 {{ opt }}
+                                </button>
+                            </div>
                         </div>
                         <div v-if="chatLoading" class="message assistant">
                             思考中...
@@ -646,8 +707,8 @@
             </div>
         </div>
 
-        <!-- 悬浮进度条 -->
-        <div class="floating-progress" v-if="videoUrl && currentTime > 0">
+        <!-- 悬浮进度条 (带环形进度) -->
+        <div class="floating-progress" v-if="videoUrl && currentTime > 0" :style="{ '--progress-deg': progressDeg + 'deg' }">
             <span>⏱️ {{ formatTime(currentTime) }} / {{ formatTime(duration) }}</span>
         </div>
 
@@ -701,7 +762,9 @@
 
                     // 新增：文件类型标识
                     fileType: 'video', // video, audio, archive
-                    processingFile: '' // 当前正在后台处理的文件路径
+                    processingFile: '' ,// 当前正在后台处理的文件路径
+
+                    progressDeg: 0, // 进度条角度
                 };
             },
             computed: {
@@ -746,6 +809,11 @@
                 if (this.refreshTimer) clearInterval(this.refreshTimer);
             },
             methods: {
+                formatTime(seconds) {
+                    const mins = Math.floor(seconds / 60);
+                    const secs = Math.floor(seconds % 60);
+                    return `${String(mins).padStart(2, '0')}:${String(secs).padStart(2, '0')}`;
+                },
                 async loadFiles() {
                     try {
                         const res = await fetch('/api/list-files');
@@ -768,12 +836,30 @@
                     this.chatHistory = [];
                     this.activeTab = 'summary';
 
+                    // 尝试恢复播放进度
+                    this.currentTime = this.loadProgress(file.path);
+
                     if (file.type === 'archive') {
                         this.loadArchive(file.path);
                     } else {
                         // 自动回显：检查是否有缓存
                         this.checkVideoStatus(file.path);
                     }
+                },
+
+                // 进度持久化
+                saveProgress(path, time) {
+                    if (!path) return;
+                    localStorage.setItem('video_progress_' + path, time);
+                },
+                loadProgress(path) {
+                    if (!path) return 0;
+                    const t = localStorage.getItem('video_progress_' + path);
+                    return t ? parseFloat(t) : 0;
+                },
+                clearProgress(path) {
+                    if (!path) return;
+                    localStorage.removeItem('video_progress_' + path);
                 },
 
                 async checkVideoStatus(path) {
@@ -930,12 +1016,14 @@
                 async deleteOutput() {
                     if(!confirm('确定要删除该视频及处理结果吗？\n\n注意：\n1. 原视频将被删除\n2. 总结和截图将归档到 archive 目录\n3. 其他中间文件将被清理')) return;
                     try {
+                        const pathToDelete = this.videoPath; // 保存路径以便清除缓存
                         const res = await fetch('/api/delete-output', {
                             method: 'POST',
                             headers: {'Content-Type': 'application/json'},
                             body: JSON.stringify({ video_path: this.videoPath })
                         });
                         if (res.ok) {
+                            this.clearProgress(pathToDelete); // 清除进度缓存
                             this.processResult = null;
                             this.aiResult = null;
                             this.showMessage('已删除视频并归档总结', 'success');
@@ -992,6 +1080,29 @@
                     }
                 },
 
+                sendQuickReply(option) {
+                    this.chatInput = `我选择 ${option}`;
+                    this.sendChat();
+                },
+
+                detectOptions(content) {
+                    // 简单检测 A. B. C. D. 选项
+                    const options = [];
+                    const regex = /(?:^|\n|\s)([A-D])[\.、]\s/g;
+                    let match;
+                    while ((match = regex.exec(content)) !== null) {
+                        if (!options.includes(match[1])) {
+                            options.push(match[1]);
+                        }
+                    }
+                    return options.sort();
+                },
+
+                renderChatMarkdown(content) {
+                    if (!content) return '';
+                    return marked.parse(content);
+                },
+
                 // 视频跳转
                 jumpTo(seconds) {
                     const video = this.$refs.videoPlayer;
@@ -1001,33 +1112,103 @@
                     }
                 },
 
-                // 处理Markdown中的点击事件 (用于图片跳转)
+                // 处理Markdown中的点击事件 (用于图片跳转和时间戳跳转)
                 handleMarkdownClick(e) {
+                    // 图片点击
                     if (e.target.tagName === 'IMG') {
-                        // 解析alt文本中的时间: "视频截图 12.50s"
                         const match = e.target.alt.match(/(\d+(\.\d+)?)s/);
                         if (match) {
                             this.jumpTo(parseFloat(match[1]));
                             this.showMessage(`跳转到 ${match[1]}秒`, 'info');
                         }
                     }
+                    // 时间戳点击
+                    if (e.target.classList.contains('time-marker')) {
+                        const time = parseFloat(e.target.dataset.time);
+                        if (!isNaN(time)) {
+                            this.jumpTo(time);
+                            this.showMessage(`跳转到 ${time}秒`, 'info');
+                        }
+                    }
                 },
 
-                // 修改 renderMarkdown 以支持归档图片的路径
-                renderMarkdown(md) {
+                // 渲染总结Markdown，注入时间戳标记
+                renderSummaryMarkdown(md) {
                     if (!md) return '';
-                    // 如果是归档文件，图片路径可能需要调整？
-                    // 目前归档只是移动了文件夹，Web路径 /files/archive/output_xxx/img.jpg 应该能访问
-                    // 因为 /files/ 映射到 D:/download/
-                    // 归档在 D:/download/archive/
-                    // 所以 /files/archive/... 是有效的
-                    return marked.parse(md);
+                    // 1. 替换 [[TIME: 123]] 为 HTML 标记
+                    // 使用 span 包装，方便后续查找父元素高亮
+                    let processed = md.replace(/\[\[TIME:\s*(\d+(\.\d+)?)\]\]/g, 
+                        '<span class="time-marker" data-time="$1">⏱ $1s</span>');
+                    
+                    return marked.parse(processed);
                 },
 
-                formatTime(seconds) {
-                    const m = Math.floor(seconds / 60);
-                    const s = Math.floor(seconds % 60);
-                    return `${m}:${s.toString().padStart(2, '0')}`;
+                // 视频时间更新事件
+                onTimeUpdate(e) {
+                    const video = e.target;
+                    this.currentTime = video.currentTime;
+                    this.duration = video.duration || 0;
+
+                    // 保存进度
+                    this.saveProgress(this.videoPath, this.currentTime);
+
+                    // 更新环形进度条角度
+                    if (this.duration > 0) {
+                        this.progressDeg = (this.currentTime / this.duration) * 360;
+                    }
+
+                    // 同步字幕
+                    if (this.processResult && this.processResult.segments) {
+                        const idx = this.processResult.segments.findIndex(s => 
+                            this.currentTime >= s.start_time && this.currentTime <= s.end_time
+                        );
+                        
+                        if (idx !== -1 && idx !== this.currentSegmentIndex) {
+                            this.currentSegmentIndex = idx;
+                            this.scrollToSubtitle(idx);
+                        }
+                    }
+
+                    // 同步总结高亮
+                    this.updateSummaryHighlight();
+                },
+
+                updateSummaryHighlight() {
+                    // 查找所有时间标记
+                    const markers = document.querySelectorAll('.time-marker');
+                    let activeMarker = null;
+
+                    // 找到当前时间对应的最后一个标记
+                    for (let i = 0; i < markers.length; i++) {
+                        const time = parseFloat(markers[i].dataset.time);
+                        if (time <= this.currentTime) {
+                            activeMarker = markers[i];
+                        } else {
+                            break; // 后面的时间都比当前大，停止
+                        }
+                    }
+
+                    // 移除旧的高亮
+                    document.querySelectorAll('.active-summary-block').forEach(el => {
+                        el.classList.remove('active-summary-block');
+                    });
+
+                    // 添加新高亮
+                    if (activeMarker) {
+                        // 高亮标记所在的父级块元素 (通常是 p, li, h2 等)
+                        const parentBlock = activeMarker.closest('p, li, h2, h3, blockquote');
+                        if (parentBlock) {
+                            parentBlock.classList.add('active-summary-block');
+                        }
+                    }
+                },
+
+                // 视频元数据加载完成，恢复进度
+                onLoadedMetadata(e) {
+                    const savedTime = this.loadProgress(this.videoPath);
+                    if (savedTime > 0 && e.target) {
+                        e.target.currentTime = savedTime;
+                    }
                 },
 
                 // 配置相关
@@ -1054,26 +1235,7 @@
                     setTimeout(() => this.message.text = '', 3000);
                 },
 
-                // 视频时间更新事件
-                onTimeUpdate(e) {
-                    const video = e.target;
-                    this.currentTime = video.currentTime;
-                    this.duration = video.duration || 0;
-
-                    // 同步字幕
-                    if (this.processResult && this.processResult.segments) {
-                        const idx = this.processResult.segments.findIndex(s =>
-                            this.currentTime >= s.start_time && this.currentTime <= s.end_time
-                        );
-
-                        if (idx !== -1 && idx !== this.currentSegmentIndex) {
-                            this.currentSegmentIndex = idx;
-                            // 滚动到对应字幕
-                            this.scrollToSubtitle(idx);
-                        }
-                    }
-                },
-
+                // 滚动到字幕
                 scrollToSubtitle(index) {
                     // 确保在字幕Tab激活时才滚动
                     if (this.activeRightTab === 'subtitles' && this.subtitleRefs[index]) {
@@ -1083,6 +1245,13 @@
                         });
                     }
                 },
+            },
+            updated() {
+                // 确保视频元素绑定了 loadedmetadata 事件
+                const video = this.$refs.videoPlayer;
+                if (video && !video.onloadedmetadata) {
+                    video.onloadedmetadata = this.onLoadedMetadata;
+                }
             }
         }).mount('#app');
     </script>
