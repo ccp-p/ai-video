@@ -399,12 +399,12 @@
 
         /* 悬浮视频样式 */
         .video-container.sticky {
-            position: fixed;
-            bottom: 20px;
-            right: 20px;
-            width: 320px;
-            height: 180px;
-            z-index: 100;
+            position: fixed !important;
+            bottom: 20px !important;
+            right: 20px !important;
+            width: 320px !important;
+            height: 180px !important;
+            z-index: 9999 !important; /* 提高层级，防止被遮挡 */
             box-shadow: 0 5px 20px rgba(0, 0, 0, 0.5);
             border: 2px solid var(--accent-color);
             border-radius: 8px;
@@ -502,12 +502,12 @@
 
         /* 悬浮视频样式 */
         .video-container.sticky {
-            position: fixed;
-            bottom: 20px;
-            right: 20px;
-            width: 320px;
-            height: 180px;
-            z-index: 100;
+            position: fixed !important;
+            bottom: 20px !important;
+            right: 20px !important;
+            width: 320px !important;
+            height: 180px !important;
+            z-index: 9999 !important; /* 提高层级，防止被遮挡 */
             box-shadow: 0 5px 20px rgba(0, 0, 0, 0.5);
             border: 2px solid var(--accent-color);
             border-radius: 8px;
@@ -780,6 +780,11 @@
                             <input type="checkbox" id="hideScreenshots" v-model="config.hideScreenshots" style="width:auto;">
                             <label for="hideScreenshots" style="margin:0; cursor:pointer;">隐藏AI总结中的视频截图</label>
                         </div>
+                        <!-- 新增：悬浮播放配置 -->
+                        <div class="form-group" style="display:flex; align-items:center; gap:8px; margin-top:5px;">
+                            <input type="checkbox" id="pipEnabled" v-model="pipEnabled" style="width:auto;">
+                            <label for="pipEnabled" style="margin:0; cursor:pointer;">开启滚动悬浮播放</label>
+                        </div>
                         <button class="btn" style="background:#333;color:#ccc;margin-top:10px;" @click="saveConfig">保存配置</button>
                     </div>
                 </div>
@@ -942,6 +947,7 @@
                     duration: 0,
                     isSticky: false,
                     forceStickyOff: false,
+                    pipEnabled: true, // 新增：默认开启悬浮
 
                     // 字幕相关
                     currentSegmentIndex: -1,
@@ -1030,18 +1036,41 @@
                     return this.fileList.filter(f => f.type === 'archive');
                 },
             },
+            watch: {
+                // 新增：监听配置变化并保存到本地缓存
+                pipEnabled(newVal) {
+                    localStorage.setItem('pipEnabled', newVal);
+                    if (!newVal) {
+                        this.isSticky = false; // 关闭时立即取消悬浮
+                    }
+                }
+            },
             mounted() {
                 this.loadFiles();
                 this.loadConfig();
+                
+                // 新增：加载悬浮配置缓存
+                const savedPip = localStorage.getItem('pipEnabled');
+                if (savedPip !== null) {
+                    this.pipEnabled = savedPip === 'true';
+                }
+
                 // 修改：轮询间隔改为 10秒
                 this.refreshTimer = setInterval(this.loadFiles, 10000);
 
                 // 监听滚动实现悬浮视频
                 const observer = new IntersectionObserver(([entry]) => {
-                    if (!this.forceStickyOff) {
-                        this.isSticky = !entry.isIntersecting;
+                    // 当视频容器进入视口时（isIntersecting 为 true）
+                    if (entry.isIntersecting) {
+                        this.isSticky = false;
+                        this.forceStickyOff = false; // 视频回到视口后，重置手动关闭状态
+                    } else {
+                        // 当视频容器完全离开视口时
+                        if (this.pipEnabled && !this.forceStickyOff && this.videoUrl) {
+                            this.isSticky = true;
+                        }
                     }
-                }, { threshold: 0.1 });
+                }, { threshold: 0 }); // 阈值设为0，表示只要有一点点可见就算在视口内，完全不可见才触发悬浮
 
                 if (this.$refs.videoWrapper) {
                     observer.observe(this.$refs.videoWrapper);

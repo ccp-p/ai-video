@@ -47,7 +47,7 @@ const (
 )
 
 var (
-	DOWNLOAD_DIR = "D:/download" // 默认值，会在 main 中根据系统调整
+	DOWNLOAD_DIR = "D:/download" // 改为变量，以便在 main 中根据系统调整
 )
 
 // ==================== 数据结构 ====================
@@ -144,7 +144,7 @@ func getHTTPClient() *http.Client {
 
 	return &http.Client{
 		Transport: &http.Transport{
-			Proxy: http.ProxyFromEnvironment, // 支持从环境变量获取代理 (HTTP_PROXY/HTTPS_PROXY)
+			Proxy: http.ProxyFromEnvironment, // 支持从环境变量获取代理
 		},
 		Timeout: TimeoutSeconds * time.Second,
 	}
