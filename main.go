@@ -18,6 +18,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 	"time"
@@ -43,7 +44,10 @@ const (
 
 	// HTTP 服务
 	HTTP_PORT    = "8080"
-	DOWNLOAD_DIR = "D:/download"
+)
+
+var (
+	DOWNLOAD_DIR = "D:/download" // 默认值，会在 main 中根据系统调整
 )
 
 // ==================== 数据结构 ====================
@@ -136,10 +140,11 @@ func getHTTPClient() *http.Client {
 	// if err != nil {
 	// 	return &http.Client{Timeout: TimeoutSeconds * time.Second}
 	// }
-		// Proxy: http.ProxyURL(proxyURL),
+	// Proxy: http.ProxyURL(proxyURL),
 
 	return &http.Client{
 		Transport: &http.Transport{
+			Proxy: http.ProxyFromEnvironment, // 支持从环境变量获取代理 (HTTP_PROXY/HTTPS_PROXY)
 		},
 		Timeout: TimeoutSeconds * time.Second,
 	}
@@ -944,18 +949,18 @@ func (ai *AISummarizer) Summarize(req AIRequest) (AIResponse, error) {
 	// 构建高质量 Prompt
 	prompt := ai.config.CustomPrompt
 	if prompt == "" {
-		prompt = `你是一个专业的视频内容分析师。请根据提供的视频字幕内容（包含时间戳），生成一份高质量的图文总结。
+		prompt = `你是一位专业的课程助教和内容分析专家。请根据提供的视频字幕内容（包含时间戳），生成一份详尽的课程学习笔记。
 
 要求：
-1. **深度解析**：不要只列流水账，要提炼核心观点、逻辑脉络和关键细节。
-2. **结构清晰**：使用 Markdown 的一级标题、二级标题、列表、引用等语法，排版美观。
-3. **智能配图与时间定位**：
-   - 在总结关键画面时，插入截图标记：[[CAPTURE: 秒数]]
-   - **重要**：在每个核心观点、段落或列表项的开头，必须插入时间戳标记：[[TIME: 秒数]]，以便用户点击跳转和高亮阅读。
-   - 例如：[[TIME: 15.5]] 本段主要讲述了... [[CAPTURE: 15.5]]
-4. **语言风格**：专业、简洁、流畅，去除口语废话。
+1. **核心摘要**：用简练的语言概括课程/视频的核心主题和目标。
+2. **关键概念解析**：提取视频中出现的专业术语或核心概念，并进行解释。
+3. **逻辑脉络梳理**：不要记流水账，请按逻辑层级（如：背景引入 -> 核心理论 -> 案例分析 -> 总结）重组内容。
+4. **智能配图与定位**：
+   - 在关键知识点讲解处，插入截图标记：[[CAPTURE: 秒数]]
+   - **必须**：在每个重要段落或列表项开头，插入时间戳标记：[[TIME: 秒数]]，方便回溯。
+5. **课后思考**：基于内容提出3个值得深思的问题。
 
-请开始总结：`
+请使用 Markdown 格式输出，保持排版清晰专业。`
 	}
 
 	// 如果有截图，提及截图
@@ -1741,6 +1746,15 @@ func (s *HTTPServer) handleHealth(w http.ResponseWriter, r *http.Request) {
 
 func main() {
 	mode := flag.String("mode", "server", "运行模式: cli 或 server")
+
+	// 自动检测操作系统并设置默认下载目录
+	if runtime.GOOS != "windows" {
+		if home, err := os.UserHomeDir(); err == nil {
+			DOWNLOAD_DIR = filepath.Join(home, "Downloads")
+		} else {
+			DOWNLOAD_DIR = "./download"
+		}
+	}
 
 	// CLI参数
 	audioFile := flag.String("audio", "", "音频文件路径")
