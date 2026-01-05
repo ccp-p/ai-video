@@ -2,7 +2,7 @@
 REM 注意：请将此文件保存为 ANSI (GBK) 编码，否则中文可能会乱码或导致 'else' 等语法错误
 REM chcp 65001 >nul
 echo ========================================
-echo     音频/视频AI总结工具 - 启动脚本
+echo         AI Summary Tool
 echo ========================================
 echo.
 
@@ -14,7 +14,7 @@ if errorlevel 1 (
     pause
     exit /b 1
 )
-echo [✓] Go环境检测通过
+echo  GO environment detected
 
 REM 检查是否安装FFmpeg
 ffmpeg -version >nul 2>&1
@@ -25,7 +25,7 @@ if errorlevel 1 (
     set /p continue="是否继续启动？(y/n): "
     if /i "%continue%" neq "y" exit /b 1
 ) else (
-    echo [✓] FFmpeg环境检测通过
+    echo  FFmpeg environment detected 
 )
 
 REM 检查下载目录
@@ -35,7 +35,7 @@ if not exist "D:\download" (
 )
 
 echo.
-echo [信息] 正在启动服务...
+echo [info] starting server...
 echo.
 
 REM 启动服务
