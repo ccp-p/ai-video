@@ -958,7 +958,7 @@ func (ai *AISummarizer) Summarize(req AIRequest) (AIResponse, error) {
 4. **智能配图与定位**：
    - 在关键知识点讲解处，插入截图标记：[[CAPTURE: 秒数]]
    - **必须**：在每个重要段落或列表项开头，插入时间戳标记：[[TIME: 秒数]]，方便回溯。
-5. **课后思考**：基于内容提出3个值得深思的问题。
+   - 注意前端是这样解析这些标记的，请严格按照格式输出，否则无法识别。md.replace(/\[\[TIME:\s*(\d+(\.\d+)?)\]\]/g, (match, p1) => {
 
 请使用 Markdown 格式输出，保持排版清晰专业。`
 	}
