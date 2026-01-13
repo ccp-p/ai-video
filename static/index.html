@@ -411,6 +411,38 @@
             animation: slideIn 0.3s ease;
         }
 
+        /* 视频内嵌字幕样式 */
+        .video-subtitles-overlay {
+            position: absolute;
+            bottom: 50px;
+            left: 0;
+            right: 0;
+            text-align: center;
+            pointer-events: none;
+            z-index: 10;
+            padding: 0 15px;
+        }
+
+        .video-subtitles-overlay span {
+            background: rgba(0, 0, 0, 0.75);
+            color: #fff;
+            padding: 4px 12px;
+            border-radius: 4px;
+            font-size: 18px;
+            line-height: 1.4;
+            text-shadow: 1px 1px 2px #000;
+            display: inline-block;
+        }
+
+        .sticky .video-subtitles-overlay {
+            bottom: 25px;
+        }
+
+        .sticky .video-subtitles-overlay span {
+            font-size: 12px;
+            padding: 2px 6px;
+        }
+
         @keyframes slideIn {
             from {
                 transform: translateY(100%);
@@ -798,6 +830,12 @@
                     <div ref="videoWrapper" style="min-height: 200px; background: #000;">
                         <div class="video-container" :class="{ sticky: isSticky }" v-if="videoUrl">
                             <video ref="videoPlayer" controls :src="videoUrl" @timeupdate="onTimeUpdate"></video>
+                            
+                            <!-- 视频内嵌字幕 -->
+                            <div class="video-subtitles-overlay" v-if="currentSubtitle">
+                                <span>{{ currentSubtitle }}</span>
+                            </div>
+
                             <!-- 悬浮时的关闭按钮 -->
                             <div v-if="isSticky"
                                 style="position:absolute; top:-10px; right:-10px; background:red; color:white; width:20px; height:20px; border-radius:50%; text-align:center; line-height:20px; cursor:pointer; font-size:12px;"
@@ -989,6 +1027,14 @@
                     if (!relPath.startsWith('/')) relPath = '/' + relPath;
 
                     return '/files' + relPath;
+                },
+
+                // 新增：当前实时字幕文本
+                currentSubtitle() {
+                    if (this.processResult && this.processResult.segments && this.currentSegmentIndex !== -1) {
+                        return this.processResult.segments[this.currentSegmentIndex].text;
+                    }
+                    return '';
                 },
 
                 // 虚拟列表计算属性
