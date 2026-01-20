@@ -1273,12 +1273,14 @@ func (ai *AISummarizer) callExternalAI(prompt string, screenshots []string) (AIR
 
 // listDownloadFiles 列出D:/download目录下的文件
 func listDownloadFiles() ([]FileItem, error) {
+	startTime := time.Now()
 	var files []FileItem
 	
 	// 监听列表：主目录 和 dest子目录
 	scanDirs := []string{DOWNLOAD_DIR, filepath.Join(DOWNLOAD_DIR, "dest")}
 
 	for _, dir := range scanDirs {
+		dirStartTime := time.Now()
 		// 检查目录是否存在
 		if _, err := os.Stat(dir); os.IsNotExist(err) {
 			continue
@@ -1290,6 +1292,7 @@ func listDownloadFiles() ([]FileItem, error) {
 			Warn("读取目录失败 %s: %v", dir, err)
 			continue
 		}
+		Info("扫描目录 [%s] 完成，条目数: %d, 耗时: %v", dir, len(entries), time.Since(dirStartTime))
 
 		for _, entry := range entries {
 			if entry.IsDir() {
@@ -1332,7 +1335,7 @@ func listDownloadFiles() ([]FileItem, error) {
 
 			files = append(files, FileItem{
 				Name:    fileName,
-				Path:    filepath.Join(dir, fileName), // 使用完整路径
+				Path:    filepath.Join(dir, fileName),
 				Size:    info.Size(),
 				ModTime: info.ModTime().Format("2006-01-02 15:04:05"),
 				Type:    fileType,
@@ -1341,6 +1344,7 @@ func listDownloadFiles() ([]FileItem, error) {
 	}
 
 	// 扫描归档目录
+	archiveStartTime := time.Now()
 	archiveDir := filepath.Join(DOWNLOAD_DIR, "archive")
 	if entries, err := os.ReadDir(archiveDir); err == nil {
 		for _, entry := range entries {
@@ -1364,8 +1368,10 @@ func listDownloadFiles() ([]FileItem, error) {
 				}
 			}
 		}
+		Info("扫描归档目录 [%s] 完成，耗时: %v", archiveDir, time.Since(archiveStartTime))
 	}
 
+	Info("list-files 总计返回 %d 个文件，总耗时: %v", len(files), time.Since(startTime))
 	return files, nil
 }
 
