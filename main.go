@@ -1301,8 +1301,24 @@ func listDownloadFiles() ([]FileItem, error) {
 				continue
 			}
 
+			fileName := entry.Name()
+			ext := strings.ToLower(filepath.Ext(fileName))
+
+			// 处理 wma 转换
+			if ext == ".wma" {
+				wmaPath := filepath.Join(dir, fileName)
+				mp3Path := strings.TrimSuffix(wmaPath, ext) + ".mp3"
+				if err := exec.Command("ffmpeg", "-i", wmaPath, "-q:a", "2", "-y", mp3Path).Run(); err == nil {
+					os.Remove(wmaPath)
+					if newInfo, err := os.Stat(mp3Path); err == nil {
+						info = newInfo
+						fileName = filepath.Base(mp3Path)
+						ext = ".mp3"
+					}
+				}
+			}
+
 			fileType := "other"
-			ext := strings.ToLower(filepath.Ext(entry.Name()))
 			if ext == ".mp4" || ext == ".avi" || ext == ".mkv" || ext == ".mov" || ext == ".flv" {
 				fileType = "video"
 			} else if ext == ".mp3" || ext == ".wav" || ext == ".flac" || ext == ".aac" {
@@ -1315,8 +1331,8 @@ func listDownloadFiles() ([]FileItem, error) {
 			}
 
 			files = append(files, FileItem{
-				Name:    entry.Name(),
-				Path:    filepath.Join(dir, entry.Name()), // 使用完整路径
+				Name:    fileName,
+				Path:    filepath.Join(dir, fileName), // 使用完整路径
 				Size:    info.Size(),
 				ModTime: info.ModTime().Format("2006-01-02 15:04:05"),
 				Type:    fileType,
