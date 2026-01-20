@@ -1527,9 +1527,9 @@
                 // 渲染总结Markdown，注入时间戳标记
                 renderSummaryMarkdown(md) {
                     if (!md) return '';
-                    // 1. 替换 [[TIME: 123]] 为 HTML 标记
-                    // 修改：使用 formatTimeFriendly 格式化时间显示
-                    let processed = md.replace(/\[\[TIME:\s*(\d+(\.\d+)?)\]\]/g, (match, p1) => {
+                    // 1. 替换 [[TIME: 123]] 或 [[TIME: 123s]] 为 HTML 标记
+                    // 修改：正则表达式添加 s? 以兼容带有单位的时间戳
+                    let processed = md.replace(/\[\[TIME:\s*(\d+(\.\d+)?)s?\]\]/g, (match, p1) => {
                         const seconds = parseFloat(p1);
                         const timeStr = this.formatTimeFriendly(seconds);
                         return `<span class="time-marker" data-time="${p1}">⏱ ${timeStr}</span>`;
